@@ -225,8 +225,8 @@ custom_css = """
     
     /* Button styling with blue theme */
     .primary-button {
-        background-color: #0066cc;
-        color: #003366;
+        background-color: #87CEEB;
+        color: white;
         border: none;
         padding: 10px 20px;
         border-radius: 5px;
