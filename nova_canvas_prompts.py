@@ -37,4 +37,4 @@ Remember to:
 """
 
 # Prompt template
-TEXT_TO_IMAGE_PROMPT = """customer's intent is: {text}, now start your prompt generation."""
+TEXT_TO_IMAGE_PROMPT = """customer's intent is: {text}, now start your prompt generation, be accurate and keep the prompt less than 512 characters."""

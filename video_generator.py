@@ -7,7 +7,6 @@ import logging
 from typing import Dict, Optional
 from urllib.parse import urlparse
 from PIL import Image
-from prompt_optimizer import PromptOptimizer
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -58,7 +57,6 @@ class NovaVideoGenerator:
         )
         self.s3_client = boto3.client('s3')
         self.s3_output_bucket = s3_output_bucket
-        self.prompt_optimizer = PromptOptimizer()
         
         # Set up output directories from env vars
         self.text2video_dir = os.getenv('TEXT2VIDEO_OUTPUT_DIR', './output/text2video')
@@ -171,17 +169,11 @@ class NovaVideoGenerator:
             logger.info("Starting video generation")
             logger.info(f"Input text: {text}")
             
-            # Optimize prompt
-            logger.info("Optimizing prompt...")
-            optimized_text = self.prompt_optimizer.optimize_prompt(text, input_image_path)
-            logger.info(f"Original prompt: {text}")
-            logger.info(f"Optimized prompt: {optimized_text}")
-            
             # Prepare base model input
             model_input = {
                 "taskType": "TEXT_VIDEO",
                 "textToVideoParams": {
-                    "text": optimized_text
+                    "text": text
                 },
                 "videoGenerationConfig": {
                     "durationSeconds": int(os.getenv('VIDEO_DEFAULT_DURATION', '6')),
@@ -342,11 +334,14 @@ if __name__ == "__main__":
         # Initialize generator with S3 bucket from environment variables
         generator = NovaVideoGenerator()
 
-        # Example 1: Text-to-video generation
+        # Example 1: Text-to-video generation with prompt optimization
         logger.info("\n=== Starting Text-to-Video Generation ===")
-        text_response = generator.generate_video(
-            text="A beautiful sunset over a mountain landscape, cinematic quality"
-        )
+        text = "A beautiful sunset over a mountain landscape, cinematic quality"
+        # Prompt optimization can be done outside if needed
+        from prompt_optimizer import PromptOptimizer
+        prompt_optimizer = PromptOptimizer()
+        optimized_text = prompt_optimizer.optimize_prompt(text)
+        text_response = generator.generate_video(optimized_text)
         logger.info(f"Job started: {json.dumps(text_response, indent=2)}")
         
         # Wait for text-to-video job completion
@@ -360,12 +355,11 @@ if __name__ == "__main__":
                 video_path = generator.download_video(final_status["video_uri"], is_text_to_video=True)
                 logger.info(f"Video downloaded to: {video_path}")
 
-        # Example 2: Image-to-video generation
+        # Example 2: Image-to-video generation without prompt optimization
         logger.info("\n=== Starting Image-to-Video Generation ===")
-        image_response = generator.generate_video(
-            text="First Person View Aerial, Dolly In Shot, Ultra HD, 8K resolution",
-            input_image_path="./data/20241204/d9ab9ef4_z.jpg"
-        )
+        text = "First Person View Aerial, Dolly In Shot, Ultra HD, 8K resolution"
+        image_path = "./data/20241204/d9ab9ef4_z.jpg"
+        image_response = generator.generate_video(text, input_image_path=image_path)
         logger.info(f"Job started: {json.dumps(image_response, indent=2)}")
         
         # Wait for image-to-video job completion

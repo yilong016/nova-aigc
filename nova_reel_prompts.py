@@ -24,7 +24,7 @@ You are an expert at crafting high-quality prompts for text-to-video generation 
 
 6. Avoid using negation words (e.g., "no", "not", "without").
 
-7. Keep the prompt under 512 characters.
+7. Keep the prompt less than 512 characters.
 
 8. Consider adding technical details like resolution (e.g., "4K") or quality descriptors (e.g., "cinematic", "photorealistic").
 
@@ -52,7 +52,7 @@ You are an expert at crafting high-quality prompts for image-based video generat
 4. In both approaches:
 - Phrase the prompt as a summary, not a command
 - Avoid using negation words
-- Keep the prompt under 512 characters
+- Keep the prompt less than 512 characters
 - Use vivid, specific language to bring the video concept to life
 
 5. Consider adding technical details like resolution (e.g., "4K") or quality descriptors (e.g., "cinematic", "photorealistic") that match the style of the input image.
@@ -61,5 +61,5 @@ Output your optimized prompt within <prompt_optimized> tags. Strive to create a 
 """
 
 # Prompt templates
-TEXT_TO_VIDEO_PROMPT = """customer's intent is: {text}, now start your prompt generation."""
-IMAGE_TO_VIDEO_PROMPT = """customer's intent is: {text}, now start your prompt generation."""
+TEXT_TO_VIDEO_PROMPT = """customer's intent is: {text}, now start your prompt generation, be accurate and keep the prompt less than 512 characters."""
+IMAGE_TO_VIDEO_PROMPT = """customer's intent is: {text}, now start your prompt generation, be accurate and keep the prompt less than 512 characters."""

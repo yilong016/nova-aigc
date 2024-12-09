@@ -2,6 +2,8 @@ import boto3
 import base64
 from PIL import Image
 import io
+import os
+from dotenv import load_dotenv
 from nova_reel_prompts import (
     TEXT_TO_VIDEO_SYSTEM,
     TEXT_TO_VIDEO_PROMPT,
@@ -10,28 +12,25 @@ from nova_reel_prompts import (
 )
 from nova_canvas_prompts import TEXT_TO_IMAGE_SYSTEM, TEXT_TO_IMAGE_PROMPT
 
+# Load environment variables
+load_dotenv()
 
 class BasePromptOptimizer:
-    """Base class for prompt optimization using AWS Bedrock Claude."""
+    """Base class for prompt optimization using AWS Bedrock Nova."""
     
-    def __init__(self, region='us-west-2'):
-        """Initialize the Prompt Optimizer.
-
-        Args:
-            region (str): AWS region for Bedrock
-        """
+    def __init__(self):
+        """Initialize the Prompt Optimizer."""
         self.bedrock_client = boto3.client(
             service_name='bedrock-runtime',
-            region_name=region
+            region_name=os.getenv('AWS_REGION', 'us-west-2')
         )
         
         # Base parameters
         self.inference_config = {"temperature": 0.5}
-        self.additional_model_fields = {"top_k": 200}
-        self.model_id = 'us.anthropic.claude-3-5-sonnet-20241022-v2:0'  # Using Claude 3 Sonnet
+        self.model_id = os.getenv('NOVA_MODEL_ID', 'us.amazon.nova-pro-v1:0')
 
     def _encode_image(self, image_path: str, max_size=1568):
-        """Process image for Claude API.
+        """Process image for Nova API.
         
         Args:
             image_path (str): Path to the image file
@@ -65,7 +64,7 @@ class BasePromptOptimizer:
         """Find the toolUse response in the content array.
         
         Args:
-            response (dict): Claude API response
+            response (dict): Nova API response
             
         Returns:
             str: Optimized prompt from toolUse, or None if not found
@@ -77,7 +76,7 @@ class BasePromptOptimizer:
         return None
 
     def _optimize(self, text: str, system_text: str, prompt_template: str, image_path: str = None) -> str:
-        """Core optimization logic using Claude.
+        """Core optimization logic using Nova.
         
         Args:
             text (str): Original text prompt
@@ -123,17 +122,16 @@ class BasePromptOptimizer:
             }]
         }
 
-        # Call Claude
+        # Call Nova
         response = self.bedrock_client.converse(
             modelId=self.model_id,
             system=system_prompts,
             messages=[{'role': 'user', 'content': content}],
             inferenceConfig=self.inference_config,
-            additionalModelRequestFields=self.additional_model_fields,
             toolConfig=tool_config
         )
 
-        print(f'claude3 response: {response}')
+        print(f'Nova response: {response}')
         
         # Extract optimized prompt from response
         optimized_prompt = self._find_tool_use_response(response)
