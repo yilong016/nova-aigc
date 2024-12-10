@@ -7,6 +7,7 @@ from prompt_optimizer import PromptOptimizer, CanvasPromptOptimizer
 import time
 from datetime import datetime
 from dotenv import load_dotenv
+from typing import Optional, Union
 
 # Load environment variables
 load_dotenv()
@@ -26,7 +27,7 @@ image_generator = NovaImageGenerator()
 video_prompt_optimizer = PromptOptimizer()
 image_prompt_optimizer = CanvasPromptOptimizer()
 
-def optimize_video_prompt(text, image=None):
+def optimize_video_prompt(text: str, image: Optional[str] = None) -> str:
     """Optimize the input prompt for video generation"""
     try:
         logger.info(f"Starting video prompt optimization...")
@@ -41,7 +42,7 @@ def optimize_video_prompt(text, image=None):
         logger.error(f"Error during prompt optimization: {str(e)}", exc_info=True)
         return f"Error optimizing prompt: {str(e)}"
 
-def optimize_image_prompt(text):
+def optimize_image_prompt(text: str) -> str:
     """Optimize the input prompt for image generation"""
     try:
         logger.info(f"Starting image prompt optimization...")
@@ -54,7 +55,7 @@ def optimize_image_prompt(text):
         logger.error(f"Error during prompt optimization: {str(e)}", exc_info=True)
         return f"Error optimizing prompt: {str(e)}"
 
-def generate_video(text, image=None, progress=gr.Progress()):
+def generate_video(text: str, image: Optional[str] = None, progress: Optional[gr.Progress] = gr.Progress()) -> str:
     """Generate video from text or image+text"""
     try:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -114,7 +115,7 @@ def generate_video(text, image=None, progress=gr.Progress()):
         logger.error(f"Error during video generation: {str(e)}", exc_info=True)
         return f"Error generating video: {str(e)}"
 
-def generate_image(text, progress=gr.Progress()):
+def generate_image(text: str, progress: Optional[gr.Progress] = gr.Progress()) -> str:
     """Generate image from text prompt"""
     try:
         logger.info("Starting image generation")
@@ -141,7 +142,7 @@ def generate_image(text, progress=gr.Progress()):
         logger.error(f"Error during image generation: {str(e)}", exc_info=True)
         return f"Error generating image: {str(e)}"
 
-def generate_outpainting(image, prompt, mask_prompt, progress=gr.Progress()):
+def generate_outpainting(image: str, prompt: str, mask_prompt: str, progress: Optional[gr.Progress] = gr.Progress()) -> str:
     """Generate outpainted image"""
     try:
         logger.info("Starting outpainting generation")
