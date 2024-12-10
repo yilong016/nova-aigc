@@ -316,7 +316,7 @@ with gr.Blocks(css=custom_css) as demo:
                 
                 ### Image to Video
                 1. Upload your starting image
-                2. Describe your desired transformation
+                2. Describe your transformation
                 3. Create your video
                 
                 ### Tips
@@ -509,5 +509,5 @@ with gr.Blocks(css=custom_css) as demo:
 # Launch the app
 if __name__ == "__main__":
     logger.info("Starting Gradio application...")
-    demo.launch()
+    demo.launch(server_name='0.0.0.0')
     logger.info("Gradio application stopped.")
