@@ -227,13 +227,13 @@ custom_css = """
     /* Button styling with blue theme */
     .primary-button {
         background-color: #87CEEB;
-        color: white;
+        color: orange;
         border: none;
         padding: 10px 20px;
         border-radius: 5px;
         cursor: pointer;
         transition: all 0.3s ease;
-        font-weight: 500;
+        font-weight: bold;
         box-shadow: 0 2px 4px rgba(0, 102, 204, 0.2);
     }
     
@@ -291,7 +291,7 @@ custom_css = """
 
 # Create the Gradio interface
 logger.info("Setting up Gradio interface...")
-with gr.Blocks(css=custom_css) as demo:
+with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
     with gr.Row():
         # Left sidebar with instructions
         with gr.Column(scale=1, elem_classes="sidebar"):
