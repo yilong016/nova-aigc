@@ -88,6 +88,6 @@ nova-aigc/
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.12+
 - AWS credentials configured
 - Dependencies listed in requirements.txt
