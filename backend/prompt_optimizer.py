@@ -1,16 +1,15 @@
 import boto3
-import base64
 from PIL import Image
 import io
 import os
 from dotenv import load_dotenv
-from nova_reel_prompts import (
+from backend.nova_reel_prompts import (
     TEXT_TO_VIDEO_SYSTEM,
     TEXT_TO_VIDEO_PROMPT,
     IMAGE_TO_VIDEO_SYSTEM,
     IMAGE_TO_VIDEO_PROMPT
 )
-from nova_canvas_prompts import TEXT_TO_IMAGE_SYSTEM, TEXT_TO_IMAGE_PROMPT
+from backend.nova_canvas_prompts import TEXT_TO_IMAGE_SYSTEM, TEXT_TO_IMAGE_PROMPT
 
 # Load environment variables
 load_dotenv()

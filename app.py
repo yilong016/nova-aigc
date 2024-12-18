@@ -1,13 +1,15 @@
 import gradio as gr
 import os
 import logging
-from video_generator import NovaVideoGenerator
-from image_generator import NovaImageGenerator
-from prompt_optimizer import PromptOptimizer, CanvasPromptOptimizer
+from backend.video_generator import NovaVideoGenerator
+from backend.image_generator import NovaImageGenerator
+from backend.image_variation import NovaImageVariation
+from backend.prompt_optimizer import PromptOptimizer, CanvasPromptOptimizer
 import time
 from datetime import datetime
 from dotenv import load_dotenv
 from typing import Optional, Union
+import json
 
 # Load environment variables
 load_dotenv()
@@ -22,8 +24,9 @@ logger = logging.getLogger(__name__)
 
 # Initialize the generators
 logger.info("Initializing generators and optimizers...")
-video_generator = NovaVideoGenerator()  # Will use S3 bucket from env vars
+video_generator = NovaVideoGenerator()
 image_generator = NovaImageGenerator()
+image_variation = NovaImageVariation()
 video_prompt_optimizer = PromptOptimizer()
 image_prompt_optimizer = CanvasPromptOptimizer()
 
@@ -142,45 +145,162 @@ def generate_image(text: str, progress: Optional[gr.Progress] = gr.Progress()) -
         logger.error(f"Error during image generation: {str(e)}", exc_info=True)
         return f"Error generating image: {str(e)}"
 
-def generate_outpainting(image: str, prompt: str, mask_prompt: str, progress: Optional[gr.Progress] = gr.Progress()) -> str:
-    """Generate outpainted image"""
+def handle_image_generation(
+    task_type: str,
+    text: str,
+    negative_text: str,
+    width: int,
+    height: int,
+    quality: str,
+    cfg_scale: float,
+    seed: int,
+    num_images: int,
+    input_image: Optional[str] = None,
+    control_mode: Optional[str] = None,
+    control_strength: Optional[float] = None,
+    colors: Optional[str] = None,  # Changed type hint to str since it comes from textbox
+    reference_image: Optional[str] = None,
+    similarity_strength: Optional[float] = None,
+    mask_prompt: Optional[str] = None,
+    mask_image: Optional[str] = None,
+    outpainting_mode: Optional[str] = None,
+    progress: Optional[gr.Progress] = gr.Progress()
+) -> str:
+    """Handle all image generation tasks"""
     try:
-        logger.info("Starting outpainting generation")
-        logger.info(f"Using prompt: {prompt}")
-        logger.info(f"Using mask prompt: {mask_prompt}")
-        logger.info(f"Using source image: {image}")
-        
-        progress(0.2, desc="Generating outpainting...")
-        
-        # Get dimensions from environment variables or use defaults
-        dimensions = os.getenv('VIDEO_DEFAULT_DIMENSION', '1280x720').split('x')
-        width = int(dimensions[0])
-        height = int(dimensions[1])
-        
-        output_path = image_generator.outpainting(
-            image_path=image,
-            prompt=prompt,
-            mask_prompt=mask_prompt,
-            width=width,
-            height=height
+        logger.info(f"Starting {task_type} generation")
+        progress(0.2, desc=f"Processing {task_type}...")
+
+        # Prepare task-specific configuration
+        if task_type == "BACKGROUND_REMOVAL":
+            # Background removal doesn't need any config
+            image_generation_config = {}
+            
+        elif task_type in ["INPAINTING", "OUTPAINTING"]:
+            # Inpainting/Outpainting only need these parameters
+            image_generation_config = {
+                "numberOfImages": num_images,
+                "quality": quality,
+                "cfgScale": cfg_scale,
+                "seed": seed
+            }
+            
+        elif task_type == "IMAGE_VARIATION":
+            # Image variation doesn't use quality
+            image_generation_config = {
+                "numberOfImages": num_images,
+                "height": height,
+                "width": width,
+                "cfgScale": cfg_scale,
+                "seed": seed
+            }
+            
+        else:  # TEXT_IMAGE and COLOR_GUIDED_GENERATION
+            # These tasks use all configuration parameters
+            image_generation_config = {
+                "width": width,
+                "height": height,
+                "quality": quality,
+                "cfgScale": cfg_scale,
+                "seed": seed,
+                "numberOfImages": num_images
+            }
+
+        # Handle different task types
+        if task_type in ["TEXT_IMAGE", "TEXT_IMAGE with conditioning"]:
+            params = {
+                "text": text,
+                "negativeText": negative_text
+            }
+            # Add conditioning parameters if it's TEXT_IMAGE with conditioning
+            if task_type == "TEXT_IMAGE with conditioning" and input_image and control_mode:
+                params["conditionImage"] = input_image
+                params["controlMode"] = control_mode
+                params["controlStrength"] = control_strength
+
+        elif task_type == "COLOR_GUIDED_GENERATION":
+            # Parse the colors string into a JSON array
+            try:
+                if colors and colors.strip():
+                    # Handle both comma-separated format and JSON string format
+                    if colors.strip().startswith('['):
+                        color_array = json.loads(colors)
+                    else:
+                        color_array = [c.strip() for c in colors.split(',')]
+                else:
+                    color_array = []
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing colors: {str(e)}")
+                raise ValueError(f"Invalid color format. Please provide colors as comma-separated hex values or a JSON array: {str(e)}")
+
+            params = {
+                "colors": color_array,  # Now properly formatted as a JSON array
+                "text": text,
+                "negativeText": negative_text
+            }
+            # Only add referenceImage if it has a value
+            if reference_image:
+                params["referenceImage"] = reference_image
+
+        elif task_type == "IMAGE_VARIATION":
+            params = {
+                "images": [input_image],
+                "similarityStrength": similarity_strength,
+                "text": text,
+                "negativeText": negative_text
+            }
+
+        elif task_type in ["INPAINTING", "OUTPAINTING"]:
+            # First create base params without mask parameters
+            params = {
+                "image": input_image,
+                "text": text,
+                "negativeText": negative_text
+            }
+            
+            # Validate and add mask parameter - exactly one must be provided
+            if mask_prompt and mask_image:
+                raise ValueError("Please provide either maskPrompt or maskImage, but not both")
+            elif not mask_prompt and not mask_image:
+                raise ValueError("Either maskPrompt or maskImage must be provided")
+            elif mask_prompt:
+                params["maskPrompt"] = mask_prompt
+            else:  # mask_image must be provided based on above conditions
+                params["maskImage"] = mask_image
+            
+            # Add outpainting mode if applicable
+            if task_type == "OUTPAINTING":
+                params["outPaintingMode"] = outpainting_mode
+
+        elif task_type == "BACKGROUND_REMOVAL":
+            params = {
+                "image": input_image
+            }
+
+        # Determine the actual task type to send to the backend
+        backend_task_type = "TEXT_IMAGE" if task_type == "TEXT_IMAGE with conditioning" else task_type
+
+        # Call image generator with prepared parameters
+        output_path = image_generator.generate(
+            task_type=backend_task_type,
+            params=params,
+            config=image_generation_config
         )
-        
-        progress(1.0, desc="Outpainting completed!")
-        logger.info(f"Outpainting generated successfully: {output_path}")
+
+        progress(1.0, desc=f"{task_type} completed!")
+        logger.info(f"Image generated successfully: {output_path}")
         return output_path
-        
+
     except Exception as e:
-        logger.error(f"Error during outpainting: {str(e)}", exc_info=True)
-        return f"Error generating outpainting: {str(e)}"
+        logger.error(f"Error during {task_type}: {str(e)}", exc_info=True)
+        return f"Error: {str(e)}"
 
 # Custom CSS for better styling
 custom_css = """
-    /* Global styles */
     .gradio-container {
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }
     
-    /* Sidebar styling */
     .sidebar {
         background-color: #f7f7f7;
         border-right: 1px solid #e0e0e0;
@@ -188,43 +308,18 @@ custom_css = """
         height: 100%;
     }
     
-    .sidebar h2 {
-        color: #2a2a2a;
-        font-size: 1.5em;
-        margin-bottom: 1em;
-        font-weight: 600;
-    }
-    
-    .sidebar h3 {
-        color: #4a4a4a;
-        font-size: 1.1em;
-        margin-top: 1.5em;
-        margin-bottom: 0.5em;
-        font-weight: 500;
-    }
-    
-    .sidebar p {
-        color: #666;
-        font-size: 0.95em;
-        line-height: 1.5;
-        margin-bottom: 1em;
-    }
-    
-    /* Main content styling */
     .main-content {
         padding: 20px;
         max-width: 1200px;
         margin: 0 auto;
     }
     
-    /* Tab styling */
     .tab-nav {
         background-color: #ffffff;
         border-bottom: 2px solid #f0f0f0;
         padding: 10px 0;
     }
     
-    /* Button styling with blue theme */
     .primary-button {
         background-color: #87CEEB;
         color: orange;
@@ -234,38 +329,8 @@ custom_css = """
         cursor: pointer;
         transition: all 0.3s ease;
         font-weight: bold;
-        box-shadow: 0 2px 4px rgba(0, 102, 204, 0.2);
     }
     
-    .primary-button:hover {
-        background-color: #0052a3;
-        transform: translateY(-1px);
-        box-shadow: 0 4px 8px rgba(0, 102, 204, 0.3);
-    }
-    
-    .primary-button:active {
-        background-color: #004080;
-        transform: translateY(0);
-        box-shadow: 0 1px 2px rgba(0, 102, 204, 0.2);
-    }
-    
-    /* Input styling */
-    .input-box {
-        border: 1px solid #e0e0e0;
-        border-radius: 5px;
-        padding: 12px;
-        margin-bottom: 15px;
-        background-color: #ffffff;
-    }
-    
-    /* Output styling */
-    .output-display {
-        border-radius: 8px;
-        overflow: hidden;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-
-    /* Group container styling */
     .group-container {
         background: white;
         padding: 20px;
@@ -274,23 +339,14 @@ custom_css = """
         margin-bottom: 20px;
     }
 
-    /* Progress bar styling */
-    .progress-bar {
-        height: 8px;
-        background-color: #e0e0e0;
-        border-radius: 4px;
-        overflow: hidden;
-    }
-
-    .progress-bar-fill {
-        height: 100%;
-        background-color: #0066cc;
-        transition: width 0.5s ease;
+    .advanced-options {
+        border-top: 1px solid #e0e0e0;
+        margin-top: 20px;
+        padding-top: 20px;
     }
 """
 
 # Create the Gradio interface
-logger.info("Setting up Gradio interface...")
 with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
     with gr.Row():
         # Left sidebar with instructions
@@ -299,189 +355,289 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                 ## Nova AI Generator
                 Transform your ideas into stunning images and videos with AI.
                 
-                ### Text to Image
-                1. Enter your creative prompt
-                2. Click 'Optimize Prompt' to enhance it
-                3. Generate your image
+                ### Image Generation
+                Choose from multiple generation types:
+                - Text to Image
+                - Text to Image with Conditioning
+                - Color Guided Generation
+                - Image Variation
+                - Inpainting
+                - Outpainting
+                - Background Removal
                 
-                ### Image to Image (Outpainting)
-                1. Upload your source image
-                2. Describe the area to modify (mask prompt)
-                3. Describe what to add or change
-                4. Generate your enhanced image
-                
-                ### Text to Video
-                1. Enter your creative prompt
-                2. Click 'Optimize Prompt' to enhance it
-                3. Generate your video
-                
-                ### Image to Video
-                1. Upload your starting image
-                2. Describe your transformation
-                3. Create your video
+                ### Video Generation
+                Create videos from:
+                - Text descriptions
+                - Image transformations
                 
                 ### Tips
                 - Be specific in your descriptions
                 - Include details about style and quality
-                - For outpainting, clearly describe which area to modify
                 - Review optimized prompts before generating
-                
-                ### Learn More
-                For detailed guidance on creating effective prompts, check out the [Nova Prompt Best Practices Guide](https://docs.aws.amazon.com/nova/latest/userguide/prompting-creation.html)
             """)
         
         # Main content area
         with gr.Column(scale=3, elem_classes="main-content"):
             with gr.Tabs():
-                # Text to Image tab
-                with gr.Tab("Text to Image"):
+                # New Image Generation Tab
+                with gr.Tab("Image Generation"):
                     with gr.Group(elem_classes="group-container"):
-                        txt2img_input = gr.Textbox(
-                            label="Enter your creative prompt",
-                            placeholder="Describe the image you want to generate...",
-                            lines=3,
-                            elem_classes="input-box"
+                        task_type = gr.Dropdown(
+                            choices=[
+                                "TEXT_IMAGE",
+                                "TEXT_IMAGE with conditioning",
+                                "COLOR_GUIDED_GENERATION",
+                                "IMAGE_VARIATION",
+                                "INPAINTING",
+                                "OUTPAINTING",
+                                "BACKGROUND_REMOVAL"
+                            ],
+                            label="Task Type",
+                            value="TEXT_IMAGE"
                         )
                         
-                        txt2img_optimize_btn = gr.Button("✨ Optimize Prompt", elem_classes="primary-button")
+                        # Common inputs
+                        with gr.Group() as text_inputs:
+                            text = gr.Textbox(
+                                label="Prompt",
+                                placeholder="Describe what you want to generate...",
+                                lines=3
+                            )
+                            negative_text = gr.Textbox(
+                                label="Negative Prompt",
+                                placeholder="Describe what you want to avoid...",
+                                lines=2,
+                                value="bad quality, low resolution"
+                            )
+                            optimize_btn = gr.Button("✨ Optimize Prompt", elem_classes="primary-button")
+                            optimized_text = gr.Textbox(
+                                label="Optimized Prompt",
+                                lines=3,
+                                interactive=True
+                            )
                         
-                        txt2img_optimized = gr.Textbox(
-                            label="Optimized Prompt",
-                            lines=3,
-                            interactive=True,
-                            elem_classes="input-box"
+                        # Image input (for tasks that need it)
+                        with gr.Group(visible=False) as image_input:
+                            input_image = gr.Image(label="Input Image", type="filepath", sources=["upload"])
+                        
+                        # Conditioning controls
+                        with gr.Group(visible=False) as conditioning_controls:
+                            control_mode = gr.Radio(
+                                choices=["CANNY_EDGE", "SEGMENTATION"],
+                                label="Control Mode"
+                            )
+                            control_strength = gr.Slider(
+                                minimum=0.0,
+                                maximum=1.0,
+                                value=0.7,
+                                label="Control Strength"
+                            )
+                        
+                        # Color guided controls
+                        with gr.Group(visible=False) as color_controls:
+                            colors = gr.Textbox(
+                                label="Colors (comma-separated hex values)",
+                                placeholder="#FF0000,#00FF00,#0000FF"
+                            )
+                            reference_image = gr.Image(
+                                label="Reference Image",
+                                type="filepath",
+                                sources=["upload"]
+                            )
+                        
+                        # Variation controls
+                        with gr.Group(visible=False) as variation_controls:
+                            similarity_strength = gr.Slider(
+                                minimum=0.2,
+                                maximum=1.0,
+                                value=0.7,
+                                label="Similarity Strength"
+                            )
+                        
+                        # Inpainting/Outpainting controls
+                        with gr.Group(visible=False) as painting_controls:
+                            mask_prompt = gr.Textbox(
+                                label="Mask Prompt",
+                                placeholder="Describe the area to modify..."
+                            )
+                            mask_image = gr.Image(
+                                label="Mask Image",
+                                type="filepath",
+                                sources=["upload"]
+                            )
+                            outpainting_mode = gr.Radio(
+                                choices=["DEFAULT", "PRECISE"],
+                                label="Outpainting Mode",
+                                visible=False
+                            )
+                        
+                        # Common configuration
+                        with gr.Group() as advanced_options:
+                            with gr.Accordion("Advanced Options", open=False):
+                                with gr.Row():
+                                    width = gr.Number(
+                                        label="Width",
+                                        value=1280,
+                                        minimum=64,
+                                        maximum=2048
+                                    )
+                                    height = gr.Number(
+                                        label="Height",
+                                        value=720,
+                                        minimum=64,
+                                        maximum=2048
+                                    )
+                                
+                                quality = gr.Radio(
+                                    choices=["standard", "premium"],
+                                    label="Quality",
+                                    value="standard"
+                                )
+                                
+                                cfg_scale = gr.Slider(
+                                    minimum=1.0,
+                                    maximum=20.0,
+                                    value=8.0,
+                                    label="CFG Scale"
+                                )
+                                seed = gr.Number(
+                                    label="Seed (0 ~ 858,993,459 for random)",
+                                    value=12
+                                )
+                                num_images = gr.Number(
+                                    label="Number of Images",
+                                    value=1,
+                                    minimum=1,
+                                    maximum=4
+                                )
+                        
+                        generate_btn = gr.Button("🎨 Generate", elem_classes="primary-button")
+                        output_image = gr.Image(label="Generated Image")
+                        
+                        # Handle visibility of controls based on task type
+                        def update_ui(task):
+                            text_visible = task != "BACKGROUND_REMOVAL"
+                            image_visible = task != "TEXT_IMAGE"
+                            conditioning_visible = task == "TEXT_IMAGE with conditioning"
+                            color_visible = task == "COLOR_GUIDED_GENERATION"
+                            variation_visible = task == "IMAGE_VARIATION"
+                            painting_visible = task in ["INPAINTING", "OUTPAINTING"]
+                            outpainting_visible = task == "OUTPAINTING"
+                            advanced_visible = task != "BACKGROUND_REMOVAL"
+                            
+                            outputs = []
+                            for component in [text_inputs, image_input, conditioning_controls, 
+                                           color_controls, variation_controls, painting_controls, 
+                                           outpainting_mode, advanced_options]:
+                                outputs.append(gr.update(visible=False))
+                            
+                            if text_visible:
+                                outputs[0] = gr.update(visible=True)
+                            if image_visible:
+                                outputs[1] = gr.update(visible=True)
+                            if conditioning_visible:
+                                outputs[2] = gr.update(visible=True)
+                            if color_visible:
+                                outputs[3] = gr.update(visible=True)
+                            if variation_visible:
+                                outputs[4] = gr.update(visible=True)
+                            if painting_visible:
+                                outputs[5] = gr.update(visible=True)
+                            if outpainting_visible:
+                                outputs[6] = gr.update(visible=True)
+                            if advanced_visible:
+                                outputs[7] = gr.update(visible=True)
+                            
+                            return outputs
+                        
+                        task_type.change(
+                            fn=update_ui,
+                            inputs=task_type,
+                            outputs=[
+                                text_inputs,
+                                image_input,
+                                conditioning_controls,
+                                color_controls,
+                                variation_controls,
+                                painting_controls,
+                                outpainting_mode,
+                                advanced_options
+                            ]
                         )
                         
-                        txt2img_generate_btn = gr.Button("🎨 Generate Image", elem_classes="primary-button")
-                        
-                        txt2img_output = gr.Image(
-                            label="Generated Image",
-                            elem_classes="output-display"
-                        )
-                
-                # Image to Image tab
-                with gr.Tab("Image to Image"):
-                    with gr.Group(elem_classes="group-container"):
-                        img2img_input = gr.Image(
-                            label="Upload Source Image",
-                            type="filepath"
+                        # Connect optimize button
+                        optimize_btn.click(
+                            fn=optimize_image_prompt,
+                            inputs=[text],
+                            outputs=optimized_text
                         )
                         
-                        img2img_mask_prompt = gr.Textbox(
-                            label="Describe Area to Keep",
-                            placeholder="Describe which part of the image to keep (e.g., 'coffee machine', 'the sky area', 'the bottom portion')",
-                            lines=2,
-                            elem_classes="input-box"
+                        # Connect generation button
+                        generate_btn.click(
+                            fn=handle_image_generation,
+                            inputs=[
+                                task_type,
+                                optimized_text,  # Use optimized text instead of original
+                                negative_text,
+                                width,
+                                height,
+                                quality,
+                                cfg_scale,
+                                seed,
+                                num_images,
+                                input_image,
+                                control_mode,
+                                control_strength,
+                                colors,
+                                reference_image,
+                                similarity_strength,
+                                mask_prompt,
+                                mask_image,
+                                outpainting_mode
+                            ],
+                            outputs=output_image
                         )
-                        
-                        img2img_prompt = gr.Textbox(
-                            label="Describe What to Add/Change",
-                            placeholder="What would you like to add or change in the selected area?",
-                            lines=3,
-                            elem_classes="input-box"
-                        )
-                        
-                        img2img_optimize_btn = gr.Button("✨ Optimize Prompt", elem_classes="primary-button")
-                        
-                        img2img_optimized = gr.Textbox(
-                            label="Optimized Prompt",
-                            lines=3,
-                            interactive=True,
-                            elem_classes="input-box"
-                        )
-                        
-                        img2img_generate_btn = gr.Button("🎨 Generate Outpainting", elem_classes="primary-button")
-                        
-                        img2img_output = gr.Image(
-                            label="Generated Image",
-                            elem_classes="output-display"
-                        )
-                
+
                 # Text to Video tab
                 with gr.Tab("Text to Video"):
                     with gr.Group(elem_classes="group-container"):
                         txt2vid_input = gr.Textbox(
                             label="Enter your creative prompt",
                             placeholder="Describe the video you want to generate...",
-                            lines=3,
-                            elem_classes="input-box"
+                            lines=3
                         )
-                        
                         txt2vid_optimize_btn = gr.Button("✨ Optimize Prompt", elem_classes="primary-button")
-                        
                         txt2vid_optimized = gr.Textbox(
                             label="Optimized Prompt",
                             lines=3,
-                            interactive=True,
-                            elem_classes="input-box"
+                            interactive=True
                         )
-                        
                         txt2vid_generate_btn = gr.Button("🎬 Generate Video", elem_classes="primary-button")
-                        
-                        txt2vid_output = gr.Video(
-                            label="Generated Video",
-                            elem_classes="output-display"
-                        )
-                
+                        txt2vid_output = gr.Video(label="Generated Video")
+
                 # Image to Video tab
                 with gr.Tab("Image to Video"):
                     with gr.Group(elem_classes="group-container"):
                         img2vid_input = gr.Image(
                             label="Upload Starting Image",
-                            type="filepath"
+                            type="filepath",
+                            sources=["upload"]
                         )
-                        
                         img2vid_prompt = gr.Textbox(
                             label="Describe your transformation",
                             placeholder="How would you like to transform this image?",
-                            lines=3,
-                            elem_classes="input-box"
+                            lines=3
                         )
-                        
                         img2vid_optimize_btn = gr.Button("✨ Optimize Prompt", elem_classes="primary-button")
-                        
                         img2vid_optimized = gr.Textbox(
                             label="Optimized Prompt",
                             lines=3,
-                            interactive=True,
-                            elem_classes="input-box"
+                            interactive=True
                         )
-                        
                         img2vid_generate_btn = gr.Button("🎬 Generate Video", elem_classes="primary-button")
-                        
-                        img2vid_output = gr.Video(
-                            label="Generated Video",
-                            elem_classes="output-display"
-                        )
-    
-    # Connect the components
-    # Text to Image
-    txt2img_optimize_btn.click(
-        fn=optimize_image_prompt,
-        inputs=[txt2img_input],
-        outputs=txt2img_optimized
-    )
-    
-    txt2img_generate_btn.click(
-        fn=generate_image,
-        inputs=[txt2img_optimized],
-        outputs=txt2img_output
-    )
-    
-    # Image to Image
-    img2img_optimize_btn.click(
-        fn=optimize_image_prompt,
-        inputs=[img2img_prompt],
-        outputs=img2img_optimized
-    )
-    
-    img2img_generate_btn.click(
-        fn=generate_outpainting,
-        inputs=[img2img_input, img2img_optimized, img2img_mask_prompt],
-        outputs=img2img_output
-    )
-    
-    # Text to Video
+                        img2vid_output = gr.Video(label="Generated Video")
+
+    # Connect the components for existing tabs
     txt2vid_optimize_btn.click(
         fn=optimize_video_prompt,
         inputs=[txt2vid_input],
@@ -494,7 +650,6 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
         outputs=txt2vid_output
     )
     
-    # Image to Video
     img2vid_optimize_btn.click(
         fn=optimize_video_prompt,
         inputs=[img2vid_prompt, img2vid_input],
