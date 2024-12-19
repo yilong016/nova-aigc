@@ -1,23 +1,35 @@
 # Nova AIGC
 
-AI-powered web application for generating and manipulating images and videos using AWS Bedrock Nova models.
+AI-powered application for generating and manipulating images and videos using AWS Bedrock Nova models.
 
 ## Features
 
+### Image Generation
 - Text to Image Generation
-- Image to Image (Outpainting)
+- Text to Image with Conditioning (Edge/Segmentation)
+- Color Guided Image Generation
 - Image Variation Generation
+- Image Inpainting
+- Image Outpainting
+- Background Removal
+- Prompt Optimization for Better Results
+- Advanced Options (Quality, CFG Scale, Dimensions, etc.)
+
+### Video Generation
 - Text to Video Generation
-- Image to Video Generation
-- Automatic Prompt Optimization
-- Gradio Web Interface
+- Image to Video Transformation
+- Video Prompt Optimization
+
+### Interface
+- User-friendly Web Interface
+- Real-time Generation Progress
+- Multiple Generation Options
+- Advanced Configuration Controls
 
 ## Setup
 
-1. Clone and install dependencies:
+1. Install dependencies:
 ```bash
-git clone <repository-url>
-cd nova-aigc
 python -m venv venv
 source venv/bin/activate  # On Windows use: venv\Scripts\activate
 pip install -r requirements.txt
@@ -26,68 +38,38 @@ pip install -r requirements.txt
 2. Configure environment:
 ```bash
 cp .env.example .env
-# Edit .env with your settings
+# Edit .env with your AWS credentials and settings
 ```
 
-## Configuration
+## Environment Variables
 
-Key environment variables in `.env`:
+Essential configurations in `.env`:
 
 ```bash
-# AWS Configuration
 AWS_REGION=us-east-1
 AWS_S3_BUCKET=your_bucket_name
 AWS_S3_PREFIX=nova-demo
-
-# Nova Configuration
+# model id used for prompt optimization
 NOVA_MODEL_ID=us.amazon.nova-pro-v1:0
-
-# Storage Configuration
-STORAGE_DIR=output
-IMAGE_OUTPUT_DIR=${STORAGE_DIR}/generated_image
-VIDEO_OUTPUT_DIR=${STORAGE_DIR}/generated_videos
-TEXT2VIDEO_OUTPUT_DIR=${STORAGE_DIR}/text2video
-IMAGE2VIDEO_OUTPUT_DIR=${STORAGE_DIR}/image2video
-
-# Video Parameters
-VIDEO_DEFAULT_DURATION=6
-VIDEO_DEFAULT_FPS=24
-VIDEO_DEFAULT_DIMENSION=1280x720
 ```
 
 ## Usage
 
-1. Start the application:
+1. Start the web interface:
 ```bash
 python app.py
 ```
 
 2. Open http://localhost:7860 in your browser
 
-3. Select generation mode:
-   - Text to Image: Generate images from text descriptions
-   - Image to Image: Modify existing images
-   - Image Variation: Create variations of images
-   - Text to Video: Generate videos from text
+3. Choose your generation mode:
+   - Image Generation: Create and manipulate images with various options
+   - Text to Video: Generate videos from text descriptions
    - Image to Video: Transform images into videos
+   - Use "Optimize Prompt" for better results
 
-4. Enter your prompt and use the "Optimize Prompt" feature for better results
-
-## Project Structure
-
-```
-nova-aigc/
-├── app.py                  # Main Gradio interface
-├── image_generator.py      # Image generation
-├── video_generator.py      # Video generation
-├── prompt_optimizer.py     # Prompt optimization
-├── nova_reel_prompts.py   # Video generation prompts
-├── nova_canvas_prompts.py # Image generation prompts
-└── output/                # Generated media
-```
 
 ## Requirements
 
 - Python 3.12+
-- AWS credentials configured
-- Dependencies listed in requirements.txt
+- AWS credentials with Bedrock access
