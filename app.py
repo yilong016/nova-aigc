@@ -155,11 +155,15 @@ def handle_image_generation(
     cfg_scale: float,
     seed: int,
     num_images: int,
-    input_image: Optional[str] = None,
+    conditioning_input: Optional[str] = None,
+    variation_input: Optional[str] = None,
+    inpainting_input: Optional[str] = None,
+    outpainting_input: Optional[str] = None,
+    background_removal_input: Optional[str] = None,
     control_mode: Optional[str] = None,
     control_strength: Optional[float] = None,
-    colors: Optional[str] = None,  # Changed type hint to str since it comes from textbox
-    reference_image: Optional[str] = None,
+    colors: Optional[str] = None,
+    color_guided_reference: Optional[str] = None,
     similarity_strength: Optional[float] = None,
     mask_prompt: Optional[str] = None,
     mask_image: Optional[str] = None,
@@ -213,8 +217,8 @@ def handle_image_generation(
                 "negativeText": negative_text
             }
             # Add conditioning parameters if it's TEXT_IMAGE with conditioning
-            if task_type == "TEXT_IMAGE with conditioning" and input_image and control_mode:
-                params["conditionImage"] = input_image
+            if task_type == "TEXT_IMAGE with conditioning" and conditioning_input and control_mode:
+                params["conditionImage"] = conditioning_input
                 params["controlMode"] = control_mode
                 params["controlStrength"] = control_strength
 
@@ -239,12 +243,12 @@ def handle_image_generation(
                 "negativeText": negative_text
             }
             # Only add referenceImage if it has a value
-            if reference_image:
-                params["referenceImage"] = reference_image
+            if color_guided_reference:
+                params["referenceImage"] = color_guided_reference
 
         elif task_type == "IMAGE_VARIATION":
             params = {
-                "images": [input_image],
+                "images": [variation_input],
                 "similarityStrength": similarity_strength,
                 "text": text,
                 "negativeText": negative_text
@@ -252,8 +256,10 @@ def handle_image_generation(
 
         elif task_type in ["INPAINTING", "OUTPAINTING"]:
             # First create base params without mask parameters
+            # Get the appropriate input image based on task type
+            task_input = inpainting_input if task_type == "INPAINTING" else outpainting_input
             params = {
-                "image": input_image,
+                "image": task_input,
                 "text": text,
                 "negativeText": negative_text
             }
@@ -274,7 +280,7 @@ def handle_image_generation(
 
         elif task_type == "BACKGROUND_REMOVAL":
             params = {
-                "image": input_image
+                "image": background_removal_input
             }
 
         # Determine the actual task type to send to the backend
@@ -416,9 +422,13 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                                 interactive=True
                             )
                         
-                        # Image input (for tasks that need it)
-                        with gr.Group(visible=False) as image_input:
-                            input_image = gr.Image(label="Input Image", type="filepath", sources=["upload"])
+                        # Separate input images for each task type
+                        with gr.Group() as input_images_group:
+                            conditioning_input = gr.Image(label="Input Image (Conditioning)", type="filepath", sources=["upload"], visible=False)
+                            variation_input = gr.Image(label="Input Image (Variation)", type="filepath", sources=["upload"], visible=False)
+                            inpainting_input = gr.Image(label="Input Image (Inpainting)", type="filepath", sources=["upload"], visible=False)
+                            outpainting_input = gr.Image(label="Input Image (Outpainting)", type="filepath", sources=["upload"], visible=False)
+                            background_removal_input = gr.Image(label="Input Image (Background Removal)", type="filepath", sources=["upload"], visible=False)
                         
                         # Conditioning controls
                         with gr.Group(visible=False) as conditioning_controls:
@@ -439,8 +449,8 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                                 label="Colors (comma-separated hex values)",
                                 placeholder="#FF0000,#00FF00,#0000FF"
                             )
-                            reference_image = gr.Image(
-                                label="Reference Image",
+                            color_guided_reference = gr.Image(
+                                label="Reference Image (Color Guided)",
                                 type="filepath",
                                 sources=["upload"]
                             )
@@ -512,56 +522,97 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                                 )
                         
                         generate_btn = gr.Button("🎨 Generate", elem_classes="primary-button")
-                        output_image = gr.Image(label="Generated Image")
                         
-                        # Handle visibility of controls based on task type
+                        # Create separate output components for each task type
+                        with gr.Group() as output_group:
+                            text_image_output = gr.Image(label="Generated Image (Text to Image)", visible=True)
+                            conditioned_image_output = gr.Image(label="Generated Image (Conditioned)", visible=False)
+                            color_guided_output = gr.Image(label="Generated Image (Color Guided)", visible=False)
+                            variation_output = gr.Image(label="Generated Image (Variation)", visible=False)
+                            inpainting_output = gr.Image(label="Generated Image (Inpainting)", visible=False)
+                            outpainting_output = gr.Image(label="Generated Image (Outpainting)", visible=False)
+                            background_removal_output = gr.Image(label="Generated Image (Background Removal)", visible=False)
+                        
                         def update_ui(task):
+                            """Handle visibility of controls and outputs based on task type"""
                             text_visible = task != "BACKGROUND_REMOVAL"
-                            image_visible = task != "TEXT_IMAGE"
                             conditioning_visible = task == "TEXT_IMAGE with conditioning"
                             color_visible = task == "COLOR_GUIDED_GENERATION"
                             variation_visible = task == "IMAGE_VARIATION"
                             painting_visible = task in ["INPAINTING", "OUTPAINTING"]
                             outpainting_visible = task == "OUTPAINTING"
                             advanced_visible = task != "BACKGROUND_REMOVAL"
+
+                            # Input image visibility
+                            input_visibility = {
+                                "TEXT_IMAGE": [False, False, False, False, False],
+                                "TEXT_IMAGE with conditioning": [True, False, False, False, False],
+                                "COLOR_GUIDED_GENERATION": [False, False, False, False, False],
+                                "IMAGE_VARIATION": [False, True, False, False, False],
+                                "INPAINTING": [False, False, True, False, False],
+                                "OUTPAINTING": [False, False, False, True, False],
+                                "BACKGROUND_REMOVAL": [False, False, False, False, True]
+                            }
+                            current_input_visibility = input_visibility[task]
                             
-                            outputs = []
-                            for component in [text_inputs, image_input, conditioning_controls, 
-                                           color_controls, variation_controls, painting_controls, 
-                                           outpainting_mode, advanced_options]:
-                                outputs.append(gr.update(visible=False))
+                            # Update output visibility based on task
+                            outputs_visibility = {
+                                "TEXT_IMAGE": [True, False, False, False, False, False, False],
+                                "TEXT_IMAGE with conditioning": [False, True, False, False, False, False, False],
+                                "COLOR_GUIDED_GENERATION": [False, False, True, False, False, False, False],
+                                "IMAGE_VARIATION": [False, False, False, True, False, False, False],
+                                "INPAINTING": [False, False, False, False, True, False, False],
+                                "OUTPAINTING": [False, False, False, False, False, True, False],
+                                "BACKGROUND_REMOVAL": [False, False, False, False, False, False, True]
+                            }
                             
-                            if text_visible:
-                                outputs[0] = gr.update(visible=True)
-                            if image_visible:
-                                outputs[1] = gr.update(visible=True)
-                            if conditioning_visible:
-                                outputs[2] = gr.update(visible=True)
-                            if color_visible:
-                                outputs[3] = gr.update(visible=True)
-                            if variation_visible:
-                                outputs[4] = gr.update(visible=True)
-                            if painting_visible:
-                                outputs[5] = gr.update(visible=True)
-                            if outpainting_visible:
-                                outputs[6] = gr.update(visible=True)
-                            if advanced_visible:
-                                outputs[7] = gr.update(visible=True)
+                            current_visibility = outputs_visibility[task]
                             
-                            return outputs
+                            return [
+                                gr.update(visible=text_visible),
+                                gr.update(visible=current_input_visibility[0]),  # conditioning
+                                gr.update(visible=current_input_visibility[1]),  # variation
+                                gr.update(visible=current_input_visibility[2]),  # inpainting
+                                gr.update(visible=current_input_visibility[3]),  # outpainting
+                                gr.update(visible=current_input_visibility[4]),  # background removal
+                                gr.update(visible=conditioning_visible),
+                                gr.update(visible=color_visible),
+                                gr.update(visible=variation_visible),
+                                gr.update(visible=painting_visible),
+                                gr.update(visible=outpainting_visible),
+                                gr.update(visible=advanced_visible),
+                                gr.update(visible=current_visibility[0]),
+                                gr.update(visible=current_visibility[1]),
+                                gr.update(visible=current_visibility[2]),
+                                gr.update(visible=current_visibility[3]),
+                                gr.update(visible=current_visibility[4]),
+                                gr.update(visible=current_visibility[5]),
+                                gr.update(visible=current_visibility[6])
+                            ]
                         
                         task_type.change(
                             fn=update_ui,
                             inputs=task_type,
                             outputs=[
                                 text_inputs,
-                                image_input,
+                                conditioning_input,
+                                variation_input,
+                                inpainting_input,
+                                outpainting_input,
+                                background_removal_input,
                                 conditioning_controls,
                                 color_controls,
                                 variation_controls,
                                 painting_controls,
                                 outpainting_mode,
-                                advanced_options
+                                advanced_options,
+                                text_image_output,
+                                conditioned_image_output,
+                                color_guided_output,
+                                variation_output,
+                                inpainting_output,
+                                outpainting_output,
+                                background_removal_output
                             ]
                         )
                         
@@ -572,9 +623,25 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                             outputs=optimized_text
                         )
                         
+                        def route_output(output_path, task):
+                            """Route the output to the correct component based on task type"""
+                            outputs = [None] * 7  # Initialize all outputs as None
+                            task_index = {
+                                "TEXT_IMAGE": 0,
+                                "TEXT_IMAGE with conditioning": 1,
+                                "COLOR_GUIDED_GENERATION": 2,
+                                "IMAGE_VARIATION": 3,
+                                "INPAINTING": 4,
+                                "OUTPAINTING": 5,
+                                "BACKGROUND_REMOVAL": 6
+                            }
+                            if task in task_index:
+                                outputs[task_index[task]] = output_path
+                            return outputs
+
                         # Connect generation button
                         generate_btn.click(
-                            fn=handle_image_generation,
+                            fn=lambda *args: route_output(handle_image_generation(*args), args[0]),
                             inputs=[
                                 task_type,
                                 optimized_text,  # Use optimized text instead of original
@@ -585,17 +652,29 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                                 cfg_scale,
                                 seed,
                                 num_images,
-                                input_image,
+                                conditioning_input,  # For TEXT_IMAGE with conditioning
+                                variation_input,    # For IMAGE_VARIATION
+                                inpainting_input,   # For INPAINTING
+                                outpainting_input,  # For OUTPAINTING
+                                background_removal_input,  # For BACKGROUND_REMOVAL
                                 control_mode,
                                 control_strength,
                                 colors,
-                                reference_image,
+                                color_guided_reference,
                                 similarity_strength,
                                 mask_prompt,
                                 mask_image,
                                 outpainting_mode
                             ],
-                            outputs=output_image
+                            outputs=[
+                                text_image_output,
+                                conditioned_image_output,
+                                color_guided_output,
+                                variation_output,
+                                inpainting_output,
+                                outpainting_output,
+                                background_removal_output
+                            ]
                         )
 
                 # Text to Video tab

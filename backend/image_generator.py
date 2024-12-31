@@ -109,20 +109,61 @@ class NovaImageGenerator:
         logger.info(f"Image saved to: {output_path}")
         return output_path
 
-    def _verify_image_format(self, image_path: str) -> None:
-        """Verify that the image is in JPEG or PNG format."""
+    def _convert_webp_to_png(self, image_path: str) -> str:
+        """Convert WebP image to PNG format.
+        
+        Args:
+            image_path (str): Path to the WebP image
+            
+        Returns:
+            str: Path to the converted PNG image
+        """
+        output_path = os.path.splitext(image_path)[0] + '.png'
+        with Image.open(image_path) as img:
+            # Convert to RGB if image is in RGBA mode
+            if img.mode in ('RGBA', 'LA'):
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                background.paste(img, mask=img.split()[-1])
+                img = background
+            img.save(output_path, 'PNG', quality=100)
+        return output_path
+
+    def _verify_image_format(self, image_path: str) -> str:
+        """Verify that the image is in JPEG or PNG format, convert if WebP.
+        
+        Args:
+            image_path (str): Path to the image file
+            
+        Returns:
+            str: Path to the verified/converted image
+        """
         if not os.path.exists(image_path):
             raise ValueError(f"Image file not found: {image_path}")
 
+        # First try to detect using imghdr
         actual_type = imghdr.what(image_path)
         logger.info(f"Detected image type: {actual_type}")
 
-        if actual_type not in ['jpeg', 'png']:
-            raise ValueError(f"Invalid image format. Expected JPEG or PNG, but got: {actual_type}")
+        # If imghdr fails or returns None, try using PIL
+        if not actual_type:
+            try:
+                with Image.open(image_path) as img:
+                    actual_type = img.format.lower()
+                    logger.info(f"PIL detected image type: {actual_type}")
+            except Exception as e:
+                raise ValueError(f"Could not determine image format: {str(e)}")
+
+        if actual_type == 'webp':
+            logger.info("Converting WebP image to PNG format")
+            return self._convert_webp_to_png(image_path)
+        elif actual_type not in ['jpeg', 'png']:
+            raise ValueError(f"Invalid image format. Expected JPEG, PNG, or WebP, but got: {actual_type}")
+        
+        return image_path
 
     def _encode_image(self, image_path: str) -> str:
         """Read and base64 encode an image file."""
-        self._verify_image_format(image_path)
+        image_path = self._verify_image_format(image_path)
         with open(image_path, "rb") as f:
             return base64.b64encode(f.read()).decode('utf8')
 
