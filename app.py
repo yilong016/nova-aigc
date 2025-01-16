@@ -4,7 +4,7 @@ import logging
 from backend.video_generator import NovaVideoGenerator
 from backend.image_generator import NovaImageGenerator
 from backend.image_variation import NovaImageVariation
-from backend.prompt_optimizer import PromptOptimizer, CanvasPromptOptimizer
+from backend.prompt_optimizer import PromptOptimizer, CanvasPromptOptimizer, ImageToPrompt
 import time
 from datetime import datetime
 from dotenv import load_dotenv
@@ -22,13 +22,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize the generators
-logger.info("Initializing generators and optimizers...")
+# Initialize the generators and analyzers
+logger.info("Initializing generators, optimizers, and analyzers...")
 video_generator = NovaVideoGenerator()
+image_to_prompt = ImageToPrompt()
 image_generator = NovaImageGenerator()
 image_variation = NovaImageVariation()
 video_prompt_optimizer = PromptOptimizer()
 image_prompt_optimizer = CanvasPromptOptimizer()
+
+def analyze_image_to_prompt(image: str) -> str:
+    """Analyze an image to generate a detailed prompt for image generation"""
+    try:
+        logger.info(f"Starting image analysis...")
+        logger.info(f"Input image path: {image}")
+        
+        generated_prompt = image_to_prompt.get_prompt_from_image(image)
+        logger.info("Image analysis completed successfully")
+        return generated_prompt
+    except Exception as e:
+        logger.error(f"Error during image analysis: {str(e)}", exc_info=True)
+        return f"Error analyzing image: {str(e)}"
 
 def optimize_video_prompt(text: str, image: Optional[str] = None) -> str:
     """Optimize the input prompt for video generation"""
@@ -370,6 +384,9 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                 - Inpainting
                 - Outpainting
                 - Background Removal
+
+                ### Image Analysis
+                - Image to Prompt: Analyze images to generate detailed prompts
                 
                 ### Video Generation
                 Create videos from:
@@ -380,6 +397,7 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                 - Be specific in your descriptions
                 - Include details about style and quality
                 - Review optimized prompts before generating
+                - Check [Nova's Prompting Guide](https://docs.aws.amazon.com/nova/latest/userguide/prompting-creation.html) for best practices
             """)
         
         # Main content area
@@ -695,6 +713,21 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                             ]
                         )
 
+                # Image to Prompt tab
+                with gr.Tab("Image to Prompt"):
+                    with gr.Group(elem_classes="group-container"):
+                        img2prompt_input = gr.Image(
+                            label="Upload Image to Analyze",
+                            type="filepath",
+                            sources=["upload"]
+                        )
+                        img2prompt_analyze_btn = gr.Button("🔍 Analyze Image", elem_classes="primary-button")
+                        img2prompt_output = gr.Textbox(
+                            label="Generated Prompt",
+                            lines=3,
+                            interactive=True
+                        )
+
                 # Text to Video tab
                 with gr.Tab("Text to Video"):
                     with gr.Group(elem_classes="group-container"):
@@ -733,6 +766,13 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                         )
                         img2vid_generate_btn = gr.Button("🎬 Generate Video", elem_classes="primary-button")
                         img2vid_output = gr.Video(label="Generated Video")
+
+    # Connect the components for image to prompt
+    img2prompt_analyze_btn.click(
+        fn=analyze_image_to_prompt,
+        inputs=[img2prompt_input],
+        outputs=img2prompt_output
+    )
 
     # Connect the components for existing tabs
     txt2vid_optimize_btn.click(

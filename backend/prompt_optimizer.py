@@ -170,5 +170,44 @@ class CanvasPromptOptimizer(BasePromptOptimizer):
         return self._optimize(text, TEXT_TO_IMAGE_SYSTEM, TEXT_TO_IMAGE_PROMPT)
 
 
+class ImageToPrompt(BasePromptOptimizer):
+    """Handles image analysis to generate prompts for image generation."""
+
+    def get_prompt_from_image(self, image_path: str) -> str:
+        """
+        Analyze an image and generate a prompt suitable for image generation.
+        
+        Args:
+            image_path (str): Path to the image file
+            
+        Returns:
+            str: Generated prompt for image generation
+        """
+        system_text = """You are an expert at analyzing images and creating detailed prompts for image generation.
+        Analyze the provided image and create a comprehensive prompt that can be used with Amazon Nova Canvas.
+        Focus on key visual elements like subject matter, composition, style, lighting, colors, and mood.
+        Your prompt should be detailed yet concise, capturing the essence of the image in a way that can be used to generate similar or derivative images."""
+
+        prompt_template = """Please analyze this image and create a detailed prompt that captures its key visual elements, 
+        style, and artistic characteristics. The prompt should be optimized for generating similar images using Nova Canvas.
+        here is some example prompt, you should focus on How To Write prompt but don't be influence by its content:
+        example 1:
+        realistic editorial photo of female teacher standing at a blackboard with a warm smile.
+        example 2:
+        whimsical and ethereal soft-shaded story illustration: A woman in a large hat stands at the ship's railing looking out across the ocean
+        example 3:
+        drone view of a dark river winding through a stark Iceland landscape, cinematic
+        example 4:
+        A cool looking stylish man in an orange jacket, dark skin, wearing reflective glasses. Shot from slightly low angle, face and chest in view, aqua blue sleek building shapes in background.
+        """
+
+        return self._optimize(
+            text="",  # Empty text since we're only using image input
+            system_text=system_text,
+            prompt_template=prompt_template,
+            image_path=image_path
+        )
+
+
 # For backwards compatibility
 PromptOptimizer = ReelPromptOptimizer  # Default to ReelPromptOptimizer for existing code
