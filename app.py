@@ -510,12 +510,14 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                                     value=8.0,
                                     label="CFG Scale"
                                 )
-                                seed = gr.Number(
-                                    label="Seed (-1 for auto-random, or 0 ~ 858,993,459)",
-                                    value=-1,
-                                    minimum=-1,
-                                    maximum=858993459
-                                )
+                                with gr.Row():
+                                    seed = gr.Number(
+                                        label="Seed (0 ~ 858,993,459)",
+                                        value=0,
+                                        minimum=0,
+                                        maximum=858993459
+                                    )
+                                    random_seed_btn = gr.Button("🎲 Random", elem_classes="primary-button")
                                 num_images = gr.Number(
                                     label="Number of Images",
                                     value=1,
@@ -643,18 +645,21 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                                 outputs[task_index[task]] = output_paths
                             return outputs
 
-                        def process_seed_and_generate(*args):
-                            """Process seed value and call image generation"""
-                            # args[8] is the seed parameter based on the inputs order
-                            if args[8] == -1:
-                                import random
-                                args = list(args)  # Convert tuple to list to modify
-                                args[8] = random.randint(0, 858993459)
-                            return route_output(handle_image_generation(*args), args[0])
+                        def generate_random_seed():
+                            """Generate a random seed value"""
+                            import random
+                            return random.randint(0, 858993459)
+
+                        # Connect random seed button
+                        random_seed_btn.click(
+                            fn=generate_random_seed,
+                            inputs=[],
+                            outputs=[seed]
+                        )
 
                         # Connect generation button
                         generate_btn.click(
-                            fn=process_seed_and_generate,
+                            fn=lambda *args: route_output(handle_image_generation(*args), args[0]),
                             inputs=[
                                 task_type,
                                 optimized_text,  # Use optimized text instead of original
