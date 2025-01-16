@@ -46,6 +46,12 @@ class NovaImageGenerator:
         """Validate and filter configuration based on task type."""
         valid_config = {}
         
+        # Handle seed value first - if it's -1 or not provided, generate a random seed
+        if "seed" in config:
+            if config["seed"] < 0:
+                import random
+                config["seed"] = random.randint(0, 858993459)
+        
         if task_type == "BACKGROUND_REMOVAL":
             # No config needed for background removal
             return valid_config
@@ -91,23 +97,26 @@ class NovaImageGenerator:
                 logger.error(f"Image generation failed: {error_msg}")
                 raise Exception(f"Image generation failed: {error_msg}")
             
-            base64_image = response_body.get("images")[0]
-            return base64.b64decode(base64_image.encode('ascii'))
+            base64_images = response_body.get("images", [])
+            return [base64.b64decode(img.encode('ascii')) for img in base64_images]
             
         except Exception as e:
             logger.error(f"Model invocation failed: {str(e)}", exc_info=True)
             raise
 
-    def _save_image(self, image_bytes: bytes, task_type: str = "generated") -> str:
-        """Save image bytes to file with timestamp."""
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_path = os.path.join(self.output_dir, f"{task_type.lower()}_image_{timestamp}.png")
+    def _save_images(self, image_bytes_list: List[bytes], task_type: str = "generated") -> List[str]:
+        """Save multiple image bytes to files with timestamps."""
+        output_paths = []
+        base_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
-        image = Image.open(BytesIO(image_bytes))
-        image.save(output_path, format='PNG')
-        
-        logger.info(f"Image saved to: {output_path}")
-        return output_path
+        for idx, image_bytes in enumerate(image_bytes_list):
+            output_path = os.path.join(self.output_dir, f"{task_type.lower()}_image_{base_timestamp}_{idx+1}.png")
+            image = Image.open(BytesIO(image_bytes))
+            image.save(output_path, format='PNG')
+            output_paths.append(output_path)
+            logger.info(f"Image saved to: {output_path}")
+            
+        return output_paths
 
     def _convert_webp_to_png(self, image_path: str) -> str:
         """Convert WebP image to PNG format.
@@ -239,9 +248,9 @@ class NovaImageGenerator:
             else:
                 raise ValueError(f"Unsupported task type: {task_type}")
 
-            # Generate image
-            image_bytes = self._invoke_model(body)
-            return self._save_image(image_bytes, task_type)
+            # Generate images
+            image_bytes_list = self._invoke_model(body)
+            return self._save_images(image_bytes_list, task_type)
 
         except Exception as e:
             logger.error(f"Failed to generate {task_type}: {str(e)}", exc_info=True)

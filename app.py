@@ -511,8 +511,10 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                                     label="CFG Scale"
                                 )
                                 seed = gr.Number(
-                                    label="Seed (0 ~ 858,993,459 for random)",
-                                    value=12
+                                    label="Seed (-1 for auto-random, or 0 ~ 858,993,459)",
+                                    value=-1,
+                                    minimum=-1,
+                                    maximum=858993459
                                 )
                                 num_images = gr.Number(
                                     label="Number of Images",
@@ -525,13 +527,13 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                         
                         # Create separate output components for each task type
                         with gr.Group() as output_group:
-                            text_image_output = gr.Image(label="Generated Image (Text to Image)", visible=True)
-                            conditioned_image_output = gr.Image(label="Generated Image (Conditioned)", visible=False)
-                            color_guided_output = gr.Image(label="Generated Image (Color Guided)", visible=False)
-                            variation_output = gr.Image(label="Generated Image (Variation)", visible=False)
-                            inpainting_output = gr.Image(label="Generated Image (Inpainting)", visible=False)
-                            outpainting_output = gr.Image(label="Generated Image (Outpainting)", visible=False)
-                            background_removal_output = gr.Image(label="Generated Image (Background Removal)", visible=False)
+                            text_image_output = gr.Gallery(label="Generated Images (Text to Image)", visible=True)
+                            conditioned_image_output = gr.Gallery(label="Generated Images (Conditioned)", visible=False)
+                            color_guided_output = gr.Gallery(label="Generated Images (Color Guided)", visible=False)
+                            variation_output = gr.Gallery(label="Generated Images (Variation)", visible=False)
+                            inpainting_output = gr.Gallery(label="Generated Images (Inpainting)", visible=False)
+                            outpainting_output = gr.Gallery(label="Generated Images (Outpainting)", visible=False)
+                            background_removal_output = gr.Gallery(label="Generated Images (Background Removal)", visible=False)
                         
                         def update_ui(task):
                             """Handle visibility of controls and outputs based on task type"""
@@ -623,9 +625,11 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                             outputs=optimized_text
                         )
                         
-                        def route_output(output_path, task):
+                        def route_output(output_paths, task):
                             """Route the output to the correct component based on task type"""
                             outputs = [None] * 7  # Initialize all outputs as None
+                            if not isinstance(output_paths, list):
+                                output_paths = [output_paths]
                             task_index = {
                                 "TEXT_IMAGE": 0,
                                 "TEXT_IMAGE with conditioning": 1,
@@ -636,12 +640,21 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                                 "BACKGROUND_REMOVAL": 6
                             }
                             if task in task_index:
-                                outputs[task_index[task]] = output_path
+                                outputs[task_index[task]] = output_paths
                             return outputs
+
+                        def process_seed_and_generate(*args):
+                            """Process seed value and call image generation"""
+                            # args[8] is the seed parameter based on the inputs order
+                            if args[8] == -1:
+                                import random
+                                args = list(args)  # Convert tuple to list to modify
+                                args[8] = random.randint(0, 858993459)
+                            return route_output(handle_image_generation(*args), args[0])
 
                         # Connect generation button
                         generate_btn.click(
-                            fn=lambda *args: route_output(handle_image_generation(*args), args[0]),
+                            fn=process_seed_and_generate,
                             inputs=[
                                 task_type,
                                 optimized_text,  # Use optimized text instead of original
