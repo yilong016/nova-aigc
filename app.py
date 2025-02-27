@@ -6,6 +6,7 @@ from backend.image_generator import NovaImageGenerator
 from backend.image_variation import NovaImageVariation
 from backend.prompt_optimizer import PromptOptimizer, CanvasPromptOptimizer, ImageToPrompt
 from backend.intellegent_resize_image import IntelligentImageResizer
+from backend.detect_object_to_mask import detect_and_mask, ensure_directories
 import time
 from datetime import datetime
 from dotenv import load_dotenv
@@ -301,29 +302,47 @@ def handle_image_generation(
                 "negativeText": negative_text
             }
 
-        elif task_type in ["INPAINTING", "OUTPAINTING"]:
-            # First create base params without mask parameters
-            # Get the appropriate input image based on task type
-            task_input = inpainting_input if task_type == "INPAINTING" else outpainting_input
+        elif task_type == "INPAINTING":
             params = {
-                "image": task_input,
-                "text": text,
+                "image": inpainting_input,
                 "negativeText": negative_text
             }
             
-            # Validate and add mask parameter - exactly one must be provided
+            # Only add text if it's not empty (allowing for object removal without replacement)
+            if text and text.strip():
+                params["text"] = text
+            
+            # Validate and add mask parameter for inpainting
             if mask_prompt and mask_image:
-                raise ValueError("Please provide either maskPrompt or maskImage, but not both")
+                raise ValueError("Please provide either maskPrompt or maskImage for inpainting, but not both")
             elif not mask_prompt and not mask_image:
-                raise ValueError("Either maskPrompt or maskImage must be provided")
+                raise ValueError("Either maskPrompt or maskImage must be provided for inpainting")
             elif mask_prompt:
                 params["maskPrompt"] = mask_prompt
-            else:  # mask_image must be provided based on above conditions
+            else:
                 params["maskImage"] = mask_image
+                
+        elif task_type == "OUTPAINTING":
+            # For outpainting, text is required
+            if not text or not text.strip():
+                raise ValueError("Text prompt is required for outpainting")
+                
+            params = {
+                "image": outpainting_input,
+                "text": text,
+                "negativeText": negative_text,
+                "outPaintingMode": outpainting_mode
+            }
             
-            # Add outpainting mode if applicable
-            if task_type == "OUTPAINTING":
-                params["outPaintingMode"] = outpainting_mode
+            # Validate and add mask parameter for outpainting
+            if mask_prompt and mask_image:
+                raise ValueError("Please provide either maskPrompt or maskImage for outpainting, but not both")
+            elif not mask_prompt and not mask_image:
+                raise ValueError("Either maskPrompt or maskImage must be provided for outpainting")
+            elif mask_prompt:
+                params["maskPrompt"] = mask_prompt
+            else:
+                params["maskImage"] = mask_image
 
         elif task_type == "BACKGROUND_REMOVAL":
             params = {
@@ -778,6 +797,38 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                         txt2vid_generate_btn = gr.Button("🎬 Generate Video", elem_classes="primary-button")
                         txt2vid_output = gr.Video(label="Generated Video")
 
+                # Object Detection and Masking tab
+                with gr.Tab("Object Detection"):
+                    with gr.Group(elem_classes="group-container"):
+                        detect_image = gr.Image(
+                            label="Upload Image",
+                            type="filepath",
+                            sources=["upload"]
+                        )
+                        detect_object = gr.Textbox(
+                            label="Object to Detect",
+                            placeholder="Enter the object name to detect (e.g., 'bottle', 'car', 'dog')"
+                        )
+                        with gr.Row():
+                            detect_model = gr.Dropdown(
+                                choices=["us.amazon.nova-lite-v1:0", "us.amazon.nova-pro-v1:0"],
+                                value="us.amazon.nova-lite-v1:0",
+                                label="Model"
+                            )
+                            detect_size = gr.Slider(
+                                minimum=360,
+                                maximum=1920,
+                                value=480,
+                                step=4,
+                                label="Image Processing Size"
+                            )
+                        detect_btn = gr.Button("🎯 Detect and Create Mask", elem_classes="primary-button")
+                        with gr.Row():
+                            detect_output = gr.Image(label="Detection Result")
+                            mask_output = gr.Image(label="Mask Result")
+                        detect_coords = gr.JSON(label="Detection Coordinates")
+                        mask_path = gr.Textbox(label="Saved Mask Path")
+
                 # Image to Video tab
                 with gr.Tab("Image to Video"):
                     with gr.Group(elem_classes="group-container"):
@@ -832,8 +883,15 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
         outputs=img2vid_output
     )
 
-# Launch the app
-if __name__ == "__main__":
-    logger.info("Starting Gradio application...")
-    demo.launch(server_name='0.0.0.0')
-    logger.info("Gradio application stopped.")
+    # Connect object detection components
+    detect_btn.click(
+        fn=detect_and_mask,
+        inputs=[detect_image, detect_object, detect_model, detect_size],
+        outputs=[detect_output, mask_output, detect_coords, mask_path]
+    )
+
+    # Launch the app
+    if __name__ == "__main__":
+        logger.info("Starting Gradio application...")
+        demo.launch(server_name='0.0.0.0')
+        logger.info("Gradio application stopped.")

@@ -56,8 +56,15 @@ class NovaImageGenerator:
             # No config needed for background removal
             return valid_config
             
-        elif task_type in ["INPAINTING", "OUTPAINTING"]:
-            # Only these parameters are valid for inpainting/outpainting
+        elif task_type == "INPAINTING":
+            # Inpainting specific parameters
+            valid_keys = ["numberOfImages", "quality", "cfgScale", "seed"]
+            for key in valid_keys:
+                if key in config:
+                    valid_config[key] = config[key]
+                    
+        elif task_type == "OUTPAINTING":
+            # Outpainting specific parameters
             valid_keys = ["numberOfImages", "quality", "cfgScale", "seed"]
             for key in valid_keys:
                 if key in config:
@@ -119,14 +126,7 @@ class NovaImageGenerator:
         return output_paths
 
     def _convert_webp_to_png(self, image_path: str) -> str:
-        """Convert WebP image to PNG format.
-        
-        Args:
-            image_path (str): Path to the WebP image
-            
-        Returns:
-            str: Path to the converted PNG image
-        """
+        """Convert WebP image to PNG format."""
         output_path = os.path.splitext(image_path)[0] + '.png'
         with Image.open(image_path) as img:
             # Convert to RGB if image is in RGBA mode
@@ -138,14 +138,7 @@ class NovaImageGenerator:
         return output_path
 
     def _verify_image_format(self, image_path: str) -> str:
-        """Verify that the image is in JPEG or PNG format, convert if WebP.
-        
-        Args:
-            image_path (str): Path to the image file
-            
-        Returns:
-            str: Path to the verified/converted image
-        """
+        """Verify that the image is in JPEG or PNG format, convert if WebP."""
         if not os.path.exists(image_path):
             raise ValueError(f"Image file not found: {image_path}")
 
@@ -176,26 +169,45 @@ class NovaImageGenerator:
         with open(image_path, "rb") as f:
             return base64.b64encode(f.read()).decode('utf8')
 
+    def _validate_inpainting_params(self, params: Dict) -> None:
+        """Validate inpainting specific parameters."""
+        if not params.get("image"):
+            raise ValueError("Input image is required for inpainting")
+        if not (params.get("maskPrompt") or params.get("maskImage")):
+            raise ValueError("Either maskPrompt or maskImage must be provided for inpainting")
+        if params.get("maskPrompt") and params.get("maskImage"):
+            raise ValueError("Cannot provide both maskPrompt and maskImage for inpainting")
+
+    def _validate_outpainting_params(self, params: Dict) -> None:
+        """Validate outpainting specific parameters."""
+        if not params.get("image"):
+            raise ValueError("Input image is required for outpainting")
+        if not params.get("text"):
+            raise ValueError("Text prompt is required for outpainting")
+        if not (params.get("maskPrompt") or params.get("maskImage")):
+            raise ValueError("Either maskPrompt or maskImage must be provided for outpainting")
+        if params.get("maskPrompt") and params.get("maskImage"):
+            raise ValueError("Cannot provide both maskPrompt and maskImage for outpainting")
+        if not params.get("outPaintingMode") in ["DEFAULT", "PRECISE"]:
+            raise ValueError("outPaintingMode must be either 'DEFAULT' or 'PRECISE'")
+
     def generate(
         self,
         task_type: str,
         params: Dict,
         config: Dict
     ) -> str:
-        """Unified method for all image generation tasks.
-        
-        Args:
-            task_type (str): Type of generation task (TEXT_IMAGE, COLOR_GUIDED_GENERATION, etc.)
-            params (Dict): Task-specific parameters
-            config (Dict): Image generation configuration
-            
-        Returns:
-            str: Path to the generated image
-        """
+        """Unified method for all image generation tasks."""
         try:
             logger.info(f"Starting {task_type} generation")
             logger.info(f"Parameters: {params}")
             logger.info(f"Configuration: {config}")
+
+            # Validate task-specific parameters
+            if task_type == "INPAINTING":
+                self._validate_inpainting_params(params)
+            elif task_type == "OUTPAINTING":
+                self._validate_outpainting_params(params)
 
             # Validate and filter configuration based on task type
             valid_config = self._validate_config(task_type, config)
@@ -240,9 +252,28 @@ class NovaImageGenerator:
             elif task_type == "IMAGE_VARIATION":
                 body["imageVariationParams"] = params
             elif task_type == "INPAINTING":
-                body["inPaintingParams"] = params
+                inpainting_params = {
+                    "image": params["image"],
+                    "negativeText": params.get("negativeText", "")
+                }
+                # Only add text if it's provided and not empty
+                if params.get("text"):
+                    inpainting_params["text"] = params["text"]
+                # Add mask parameters
+                if "maskPrompt" in params:
+                    inpainting_params["maskPrompt"] = params["maskPrompt"]
+                else:
+                    inpainting_params["maskImage"] = params["maskImage"]
+                body["inPaintingParams"] = inpainting_params
             elif task_type == "OUTPAINTING":
-                body["outPaintingParams"] = params
+                body["outPaintingParams"] = {
+                    "image": params["image"],
+                    "text": params["text"],
+                    "negativeText": params.get("negativeText", ""),
+                    "maskPrompt": params.get("maskPrompt"),
+                    "maskImage": params.get("maskImage"),
+                    "outPaintingMode": params["outPaintingMode"]
+                }
             elif task_type == "BACKGROUND_REMOVAL":
                 body["backgroundRemovalParams"] = params
             else:
@@ -255,5 +286,3 @@ class NovaImageGenerator:
         except Exception as e:
             logger.error(f"Failed to generate {task_type}: {str(e)}", exc_info=True)
             raise
-
-    # Legacy methods remain unchanged...
