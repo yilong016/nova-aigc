@@ -15,6 +15,14 @@ AI-powered application for generating and manipulating images and videos using A
 - Prompt Optimization for Better Results
 - Advanced Options (Quality, CFG Scale, Dimensions, etc.)
 
+### Object Detection and Masking
+- Detect specific objects in images
+- Generate binary masks (black objects on white background)
+- Support for both Nova Lite and Pro models
+- Adjustable image processing size
+- Coordinates output for detected objects
+- Automatic mask file saving
+
 ### Video Generation
 - Text to Video Generation
 - Image to Video Transformation
@@ -46,11 +54,19 @@ cp .env.example .env
 Essential configurations in `.env`:
 
 ```bash
+# AWS Configuration
 AWS_REGION=us-east-1
 AWS_S3_BUCKET=your_bucket_name
 AWS_S3_PREFIX=nova-demo
-# model id used for prompt optimization
+
+# Model Configuration
 NOVA_MODEL_ID=us.amazon.nova-pro-v1:0
+DEFAULT_MODEL=us.amazon.nova-lite-v1:0
+
+# Storage Paths
+STORAGE_DIR=output
+MASK_DIR=${STORAGE_DIR}/mask
+UPLOAD_DIR=${STORAGE_DIR}/uploads
 ```
 
 ## Usage
@@ -64,10 +80,24 @@ python app.py
 
 3. Choose your generation mode:
    - Image Generation: Create and manipulate images with various options
+   - Object Detection: Detect objects and create masks
    - Text to Video: Generate videos from text descriptions
    - Image to Video: Transform images into videos
    - Use "Optimize Prompt" for better results
 
+### Object Detection and Masking
+
+1. Select the "Object Detection" tab
+2. Upload an image
+3. Enter the name of the object to detect (e.g., "bottle", "car", "dog")
+4. Choose the model (Nova Lite or Pro)
+5. Adjust the image processing size if needed
+6. Click "Detect and Create Mask"
+7. View results:
+   - Detection Result: Original image with detection boxes
+   - Mask Result: Binary mask with black objects on white background
+   - Detection Coordinates: JSON output of object locations
+   - Saved Mask Path: Location of the saved mask file
 
 ## Requirements
 
