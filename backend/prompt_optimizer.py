@@ -25,7 +25,7 @@ class BasePromptOptimizer:
         )
         
         # Base parameters
-        self.inference_config = {"temperature": 0.5}
+        self.inference_config = {"temperature": 1}
         self.model_id = os.getenv('NOVA_MODEL_ID', 'us.amazon.nova-pro-v1:0')
 
     def _encode_image(self, image_path: str, max_size=1568):

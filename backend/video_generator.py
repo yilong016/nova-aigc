@@ -9,7 +9,6 @@ from urllib.parse import urlparse
 from PIL import Image
 from datetime import datetime
 from dotenv import load_dotenv
-
 # Load environment variables
 load_dotenv()
 
@@ -95,59 +94,6 @@ class NovaVideoGenerator:
         logger.debug(f"Image validation successful: {image_path}")
         return self.SUPPORTED_FORMATS[ext]
 
-    def _resize_image_if_needed(self, image_path: str) -> str:
-        """Resize image to exactly 1280x720 by scaling and cropping.
-        
-        Args:
-            image_path (str): Path to the input image
-
-        Returns:
-            str: Path to the resized image (or original if no resize needed)
-        """
-        logger.info(f"Checking if image needs resizing: {image_path}")
-        
-        with Image.open(image_path) as img:
-            width, height = img.size
-            
-            # Return original path if dimensions already match
-            if width == self.REQUIRED_WIDTH and height == self.REQUIRED_HEIGHT:
-                logger.info("Image dimensions already match requirements")
-                return image_path
-                
-            # Create resized image path
-            directory = os.path.dirname(image_path)
-            filename = os.path.basename(image_path)
-            base_name, ext = os.path.splitext(filename)
-            resized_path = os.path.join(directory, f"{base_name}_resized{ext}")
-            
-            logger.info(f"Resizing image from {width}x{height} to {self.REQUIRED_WIDTH}x{self.REQUIRED_HEIGHT}")
-            
-            # Calculate target dimensions to maintain aspect ratio
-            target_ratio = self.REQUIRED_WIDTH / self.REQUIRED_HEIGHT
-            img_ratio = width / height
-            
-            if img_ratio > target_ratio:
-                # Image is wider - scale to height and crop width
-                new_height = self.REQUIRED_HEIGHT
-                new_width = int(new_height * img_ratio)
-                resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                # Crop excess width from center
-                left = (new_width - self.REQUIRED_WIDTH) // 2
-                resized = resized.crop((left, 0, left + self.REQUIRED_WIDTH, new_height))
-            else:
-                # Image is taller - scale to width and crop height
-                new_width = self.REQUIRED_WIDTH
-                new_height = int(new_width / img_ratio)
-                resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                # Crop excess height from center
-                top = (new_height - self.REQUIRED_HEIGHT) // 2
-                resized = resized.crop((0, top, new_width, top + self.REQUIRED_HEIGHT))
-            
-            # Save resized image
-            resized.save(resized_path, quality=95)
-            logger.info(f"Resized image saved to: {resized_path}")
-            return resized_path
-
     def generate_video(self, text: str, input_image_path: Optional[str] = None) -> Dict:
         """Generate video from text, optionally with an input image.
         If input_image_path is provided, generates image-to-video.
@@ -189,10 +135,8 @@ class NovaVideoGenerator:
                 image_format = self._validate_image(input_image_path)
                 logger.info(f"Generating image-to-video using {image_format} image: {input_image_path}")
                 
-                # Resize image if needed
-                processed_image_path = self._resize_image_if_needed(input_image_path)
-                
-                with open(processed_image_path, "rb") as f:
+                # Read and encode image
+                with open(input_image_path, "rb") as f:
                     image_base64 = base64.b64encode(f.read()).decode("utf-8")
                 model_input["textToVideoParams"]["images"] = [{
                     "format": image_format,
@@ -200,11 +144,6 @@ class NovaVideoGenerator:
                         "bytes": image_base64
                     }
                 }]
-                
-                # Clean up resized image if it was created
-                if processed_image_path != input_image_path:
-                    os.remove(processed_image_path)
-                    logger.debug(f"Cleaned up temporary resized image: {processed_image_path}")
             else:
                 logger.info("Generating text-to-video")
             

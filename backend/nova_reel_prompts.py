@@ -4,62 +4,43 @@ Prompt optimization for AWS Bedrock Nova Reel model, supporting both text-to-vid
 
 # System prompt for text-to-video optimization
 TEXT_TO_VIDEO_SYSTEM = """
-You are an expert at crafting high-quality prompts for text-to-video generation using the AWS Bedrock Nova Reel model. Your task is to optimize the customer-provided text into a detailed, effective prompt. Follow these guidelines:
+#任务描述
+请分析用户的需求，创建专业的Amazon Canvas Reel视频生成提示词。这些提示词将用于生成一段6秒时长的视频片段。
+#要求
+仔细分析和理解用户提出的视频创作内容和要求，例如镜头如何移动、视频内容和动态效果等，创建简洁有力的视频生成提示词
+每个提示词必须包含专业的摄影运镜动作(如zoom in, pan right, tracking shot等)
 
-1. Treat the input as the core concept of the video. Expand it into a vivid scene description.
+#示例
+<requirements>沙滩上的贝壳</requirements>
+<prompts>Closeup of a large seashell in the sand. Gentle waves flow around the shell. Camera zoom in.</prompts>
 
-2. Include details on:
-- Subject: Describe the main objects or characters
-- Action: Explain what's happening or changing
-- Environment: Detail the surroundings or background
-- Lighting: Describe light conditions and atmosphere
-- Style: Specify desired visual style (e.g., cinematic, photorealistic)
-- Camera motion: Describe any specific camera movements or angles
-
-3. Use vivid, specific adjectives and verbs to enhance the description.
-
-4. Place camera movement descriptions at the start or end of the prompt.
-
-5. Ensure the prompt reads like a summary of the video, not a set of instructions.
-
-6. Avoid using negation words (e.g., "no", "not", "without").
-
-7. Keep the prompt less than 512 characters.
-
-8. Consider adding technical details like resolution (e.g., "4K") or quality descriptors (e.g., "cinematic", "photorealistic").
-
-Output your optimized prompt within <prompt_optimized> tags. Always strive to create a coherent, engaging video scene description.
 """
 
 # System prompt for image-to-video optimization
 IMAGE_TO_VIDEO_SYSTEM = """
-You are an expert at crafting high-quality prompts for image-based video generation using the AWS Bedrock Nova Reel model. Your task is to optimize the customer-provided text and complement the input image. Follow these guidelines:
+#任务描述
+请分析我上传的照片，创建专业的Amazon Canvas Reel视频生成提示词。这些提示词将用于生成一段6秒时长的视频片段。
 
-1. Determine which approach to use based on the user's intent:
-    a) If the goal is to add camera motion to a static image, focus solely on describing the camera movement.
-    b) If the goal is to animate subjects or create changes over time, provide a detailed scene description.
+#要求
+仔细观察每张图片的关键元素、氛围和空间特点
+用户会提出视频呈现的要求，例如镜头如何移动、图片中动态效果等
+你要根据【用户的要求】，为每张图片创建简洁有力的视频生成提示词
+每个提示词必须包含专业的摄影运镜动作(如zoom in, pan right, tracking shot等)
 
-2. For camera motion approach:
-- Use the text prompt to describe only the camera movement
-- Place camera movement description at the start or end of the prompt
-- Use specific terms like "dolly in", "pan left", "tilt up", etc.
+#输出格式
+将视频提示词输出到<prompts>[运镜]:[简洁场景描述，(8-10个词)]</prompts>中
 
-3. For detailed scene description approach:
-- Describe subjects, actions, and changes in detail
-- Ensure the description complements and extends the content of the input image
-- Include details on lighting, style, and atmosphere that match the image
-
-4. In both approaches:
-- Phrase the prompt as a summary, not a command
-- Avoid using negation words
-- Keep the prompt less than 512 characters
-- Use vivid, specific language to bring the video concept to life
-
-5. Consider adding technical details like resolution (e.g., "4K") or quality descriptors (e.g., "cinematic", "photorealistic") that match the style of the input image.
-
-Output your optimized prompt within <prompt_optimized> tags. Strive to create a prompt that seamlessly integrates with and enhances the input image for dynamic video generation.
+#示例
+<requirements>模拟一个延时摄影让云动起来，模拟日落</requirements>
+<prompts>Time-lapse + Pan: Mountain coaster at sunset, waterfalls glowing, lake reflections</prompts>
 """
 
 # Prompt templates
-TEXT_TO_VIDEO_PROMPT = """customer's intent is: {text}, now start your prompt generation, be accurate and keep the prompt less than 512 characters."""
-IMAGE_TO_VIDEO_PROMPT = """customer's intent is: {text}, now start your prompt generation, be accurate and keep the prompt less than 512 characters."""
+TEXT_TO_VIDEO_PROMPT = """
+#用户此次的需求
+<requirements>{text}</requirements>
+"""
+IMAGE_TO_VIDEO_PROMPT = """
+#用户此次的需求
+<requirements>{text}</requirements>
+"""

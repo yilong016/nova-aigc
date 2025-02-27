@@ -5,6 +5,7 @@ from backend.video_generator import NovaVideoGenerator
 from backend.image_generator import NovaImageGenerator
 from backend.image_variation import NovaImageVariation
 from backend.prompt_optimizer import PromptOptimizer, CanvasPromptOptimizer, ImageToPrompt
+from backend.intellegent_resize_image import IntelligentImageResizer
 import time
 from datetime import datetime
 from dotenv import load_dotenv
@@ -72,17 +73,49 @@ def optimize_image_prompt(text: str) -> str:
         logger.error(f"Error during prompt optimization: {str(e)}", exc_info=True)
         return f"Error optimizing prompt: {str(e)}"
 
+def process_image_for_video(image_path: str) -> str:
+    """Process image to meet video requirements (1280x720)"""
+    try:
+        logger.info(f"Processing image for video: {image_path}")
+        resizer = IntelligentImageResizer()
+        
+        # Create output path
+        directory = os.path.dirname(image_path)
+        filename = os.path.basename(image_path)
+        base_name, ext = os.path.splitext(filename)
+        output_path = os.path.join(directory, f"{base_name}_processed{ext}")
+        
+        # Resize image
+        processed_path = resizer.resize_image(
+            image_path=image_path,
+            output_path=output_path,
+            target_width=1280,
+            target_height=720
+        )
+        
+        logger.info(f"Image processed successfully: {processed_path}")
+        return processed_path
+    except Exception as e:
+        logger.error(f"Error processing image: {str(e)}", exc_info=True)
+        raise
+
 def generate_video(text: str, image: Optional[str] = None, progress: Optional[gr.Progress] = gr.Progress()) -> str:
     """Generate video from text or image+text"""
     try:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         logger.info(f"Starting video generation at {timestamp}")
         logger.info(f"Using prompt: {text}")
+        
+        # Process image if provided
+        processed_image = None
         if image:
-            logger.info(f"Using input image: {image}")
+            logger.info(f"Processing input image: {image}")
+            processed_image = process_image_for_video(image)
+            progress(0.2, desc="Image processing completed")
+            logger.info(f"Using processed image: {processed_image}")
 
-        progress(0.05, desc="Starting video generation...")
-        response = video_generator.generate_video(text=text, input_image_path=image)
+        progress(0.3, desc="Starting video generation...")
+        response = video_generator.generate_video(text=text, input_image_path=processed_image)
         
         if "invocationArn" not in response:
             logger.error("Failed to get invocation ARN from response")

@@ -63,3 +63,5 @@ logs/
 # Project specific
 data/
 backup/
+backup-app/
+output/
