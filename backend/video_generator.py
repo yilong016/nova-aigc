@@ -220,12 +220,13 @@ class NovaVideoGenerator:
             logger.info(f"Job status: {status['status']}... waiting {check_interval} seconds")
             time.sleep(check_interval)
 
-    def download_video(self, video_uri: str, is_text_to_video: bool = True) -> str:
+    def download_video(self, video_uri: str, is_text_to_video: bool = True, custom_path: str = None) -> str:
         """Download the generated video from S3 to a local directory.
 
         Args:
             video_uri (str): S3 URI of the video (e.g., s3://bucket/path/output.mp4)
             is_text_to_video (bool): Whether this is a text-to-video (True) or image-to-video (False) download
+            custom_path (str, optional): Custom path to save the video. If provided, this will be used instead of generating a path.
 
         Returns:
             str: Path to the downloaded video file
@@ -246,13 +247,19 @@ class NovaVideoGenerator:
             bucket = parsed_uri.netloc
             key = parsed_uri.path.lstrip('/')
             
-            # Choose output directory based on video type
-            local_dir = self.text2video_dir if is_text_to_video else self.image2video_dir
-            
-            # Generate local file path with timestamp
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename, ext = os.path.splitext(os.path.basename(key))
-            local_filename = os.path.join(local_dir, f"{filename}_{timestamp}{ext}")
+            # Use custom path if provided, otherwise generate one
+            if custom_path:
+                local_filename = custom_path
+                # Ensure directory exists
+                os.makedirs(os.path.dirname(local_filename), exist_ok=True)
+            else:
+                # Choose output directory based on video type
+                local_dir = self.text2video_dir if is_text_to_video else self.image2video_dir
+                
+                # Generate local file path with timestamp
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                filename, ext = os.path.splitext(os.path.basename(key))
+                local_filename = os.path.join(local_dir, f"{filename}_{timestamp}{ext}")
             
             logger.info(f"Downloading video to {local_filename}")
             

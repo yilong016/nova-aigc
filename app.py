@@ -1,6 +1,7 @@
 import gradio as gr
 import os
 import logging
+import csv
 from backend.video_generator import NovaVideoGenerator
 from backend.image_generator import NovaImageGenerator
 from backend.image_variation import NovaImageVariation
@@ -1123,7 +1124,7 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                         logger.error(f"Error processing image {image_path}: {str(e)}")
             
             # Function to generate a video for a single image
-            def generate_single_video(idx, image_path):
+            def generate_single_video(idx, image_path, current_batchid, current_batch_dir):
                 if image_path not in prompts or image_path not in processed_images:
                     return idx, None
                 
@@ -1145,10 +1146,18 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                     final_status = video_generator.wait_for_completion(response["invocationArn"])
                     
                     if final_status["status"] == "Completed":
-                        # Download video
+                        # Get the base filename from the image path
+                        image_basename = os.path.splitext(os.path.basename(image_path))[0]
+                        # Create a new filename with batchid prefix
+                        new_filename = f"{current_batchid}_{image_basename}.mp4"
+                        # Set the download path to the batch directory
+                        download_path = os.path.join(current_batch_dir, new_filename)
+                        
+                        # Download video with custom path
                         video_path = video_generator.download_video(
                             final_status["video_uri"], 
-                            is_text_to_video=False
+                            is_text_to_video=False,
+                            custom_path=download_path
                         )
                         logger.info(f"Video generated successfully for image {idx+1}: {video_path}")
                         return idx, video_path
@@ -1170,6 +1179,23 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                     progress_val = 0.2 + (completed_count * 0.8 / len(processed_paths))
                     progress(progress_val, f"Generated {completed_count}/{len(processed_paths)} videos")
             
+            # Generate a batchid for this set of videos
+            batchid = video_maker._generate_batchid()
+            
+            # Create batch directory
+            output_dir = os.getenv('VIDEO_OUTPUT_DIR', './output/generated_videos')
+            batch_dir = os.path.join(output_dir, batchid)
+            os.makedirs(batch_dir, exist_ok=True)
+            
+            # Save prompts to CSV file
+            csv_path = os.path.join(batch_dir, f"{batchid}_prompts.csv")
+            with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+                csv_writer = csv.writer(csvfile)
+                csv_writer.writerow(['Image', 'Prompt'])
+                for img_path, prompt in prompts.items():
+                    csv_writer.writerow([img_path, prompt])
+            logger.info(f"Saved prompts to CSV: {csv_path}")
+            
             # Generate videos concurrently
             logger.info(f"Starting concurrent video generation for {len(processed_paths)} images")
             progress(0.2, f"Starting video generation (0/{len(processed_paths)})")
@@ -1178,10 +1204,10 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
             ordered_results = {}
             
             # Use ThreadPoolExecutor for concurrent processing
-            with ThreadPoolExecutor(max_workers=5) as executor:
+            with ThreadPoolExecutor(max_workers=10) as executor:
                 # Submit all tasks
                 future_to_idx = {
-                    executor.submit(generate_single_video, i, path): i 
+                    executor.submit(generate_single_video, i, path, batchid, batch_dir): i 
                     for i, path in enumerate(processed_paths) 
                     if path in prompts and path in processed_images
                 }
@@ -1245,11 +1271,35 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
             # Ensure all durations are between 1 and 6
             durations = [max(1, min(d, 6)) for d in durations]
             
-            # Create output path
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            # Extract batchid from the first video path if possible
+            # Format is typically: /path/to/batchid_directory/batchid_filename.mp4
+            batchid = None
+            if processed_paths:
+                first_video = processed_paths[0]
+                video_dir = os.path.dirname(first_video)
+                video_filename = os.path.basename(first_video)
+                
+                # Try to extract batchid from directory name
+                dir_batchid = os.path.basename(video_dir)
+                if '_' in dir_batchid and len(dir_batchid.split('_')) == 2:
+                    batchid = dir_batchid
+                # If not found in directory, try from filename
+                elif '_' in video_filename:
+                    parts = video_filename.split('_')
+                    if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+                        batchid = f"{parts[0]}_{parts[1]}"
+            
+            # If we couldn't extract batchid, generate a new one
+            if not batchid:
+                batchid = video_maker._generate_batchid()
+            
+            # Create batch directory
             output_dir = os.getenv('VIDEO_OUTPUT_DIR', './output/generated_videos')
-            os.makedirs(output_dir, exist_ok=True)
-            output_path = os.path.join(output_dir, f"combined_video_{timestamp}.mp4")
+            batch_dir = os.path.join(output_dir, batchid)
+            os.makedirs(batch_dir, exist_ok=True)
+            
+            # Create output path with batchid
+            output_path = os.path.join(batch_dir, f"{batchid}_combined.mp4")
             
             # Combine videos
             final_path = video_maker.create_video(

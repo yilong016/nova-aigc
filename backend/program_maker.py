@@ -6,6 +6,9 @@ import argparse
 from tqdm import tqdm
 import logging
 import time
+import random
+import csv
+from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -23,6 +26,13 @@ class VideoMaker:
             'fade': self._apply_fade_transition,
             'none': self._apply_no_transition
         }
+        self.output_base_dir = os.getenv('VIDEO_OUTPUT_DIR', './output/generated_videos')
+    
+    def _generate_batchid(self):
+        """Generate a unique batch ID using date and random number"""
+        date_str = datetime.now().strftime('%Y%m%d')
+        random_num = random.randint(1000, 9999)
+        return f"{date_str}_{random_num}"
     
     def _apply_fade_transition(self, clip, duration=1):
         """Apply fade in and fade out effects to a clip"""
@@ -35,8 +45,9 @@ class VideoMaker:
     def create_video_from_images(self, image_paths: List[str], video_generator, prompt_generator, 
                                durations: Optional[List[int]] = None, 
                                transition_type: str = 'fade',
-                               output_path: str = 'output_video.mp4',
-                               max_workers: int = 3) -> Tuple[str, List[str]]:
+                               output_path: str = None,
+                               max_workers: int = 3,
+                               batchid: str = None) -> Tuple[str, List[str]]:
         """
         Create a video by generating individual videos from images and then combining them
         
@@ -47,8 +58,9 @@ class VideoMaker:
             durations (List[int], optional): List of durations for each clip (1-6 seconds)
                                             If None, defaults to 4 seconds per clip
             transition_type (str): Type of transition ('fade', or 'none')
-            output_path (str): Path for the output video file
+            output_path (str, optional): Path for the output video file. If None, a path will be generated using batchid
             max_workers (int): Maximum number of concurrent video generation tasks
+            batchid (str, optional): Batch ID for organizing outputs. If None, a new one will be generated
         
         Returns:
             Tuple[str, List[str]]: Path to the output video file and list of individual video paths
@@ -60,6 +72,20 @@ class VideoMaker:
             
         if len(image_paths) > 10:
             raise ValueError("Maximum of 10 images allowed")
+        
+        # Generate or use provided batchid
+        if batchid is None:
+            batchid = self._generate_batchid()
+        logger.info(f"Using batch ID: {batchid}")
+        
+        # Create batch directory
+        batch_dir = os.path.join(self.output_base_dir, batchid)
+        os.makedirs(batch_dir, exist_ok=True)
+        logger.info(f"Created batch directory: {batch_dir}")
+        
+        # Set default output path if not provided
+        if output_path is None:
+            output_path = os.path.join(batch_dir, f"{batchid}_combined.mp4")
         
         # Set default durations if not provided
         if durations is None:
@@ -76,6 +102,15 @@ class VideoMaker:
         try:
             prompts = prompt_generator.generate_prompts(image_paths)
             logger.info(f"Successfully generated {len(prompts)} prompts")
+            
+            # Save prompts to CSV file
+            csv_path = os.path.join(batch_dir, f"{batchid}_prompts.csv")
+            with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+                csv_writer = csv.writer(csvfile)
+                csv_writer.writerow(['Image', 'Prompt'])
+                for img_path, prompt in prompts.items():
+                    csv_writer.writerow([img_path, prompt])
+            logger.info(f"Saved prompts to CSV: {csv_path}")
         except Exception as e:
             logger.error(f"Error generating prompts: {str(e)}")
             raise
@@ -91,7 +126,9 @@ class VideoMaker:
                     self._generate_video_for_image, 
                     image_path, 
                     prompts[image_path], 
-                    video_generator
+                    video_generator,
+                    batchid,
+                    batch_dir
                 ): image_path for image_path in image_paths
             }
             
@@ -124,7 +161,7 @@ class VideoMaker:
         
         return final_video_path, video_paths_sorted
     
-    def _generate_video_for_image(self, image_path: str, prompt: str, video_generator) -> str:
+    def _generate_video_for_image(self, image_path: str, prompt: str, video_generator, batchid: str = None, batch_dir: str = None) -> str:
         """
         Generate a video for a single image using the provided prompt
         
@@ -132,6 +169,8 @@ class VideoMaker:
             image_path (str): Path to the image file
             prompt (str): Prompt for video generation
             video_generator: NovaVideoGenerator instance
+            batchid (str, optional): Batch ID for naming the video
+            batch_dir (str, optional): Directory to store the video
             
         Returns:
             str: Path to the generated video file
@@ -160,10 +199,25 @@ class VideoMaker:
                 video_uri = final_status["video_uri"]
                 logger.info(f"Video generation completed. Downloading from {video_uri}")
                 
-                # Download the video
-                video_path = video_generator.download_video(video_uri, is_text_to_video=False)
-                logger.info(f"Video downloaded to: {video_path}")
+                # Download the video with batchid prefix if provided
+                if batchid and batch_dir:
+                    # Get the base filename from the image path
+                    image_basename = os.path.splitext(os.path.basename(image_path))[0]
+                    # Create a new filename with batchid prefix
+                    new_filename = f"{batchid}_{image_basename}.mp4"
+                    # Set the download path to the batch directory
+                    download_path = os.path.join(batch_dir, new_filename)
+                    # Download the video directly to the batch directory with the new name
+                    video_path = video_generator.download_video(
+                        video_uri, 
+                        is_text_to_video=False,
+                        custom_path=download_path
+                    )
+                else:
+                    # Use default download behavior
+                    video_path = video_generator.download_video(video_uri, is_text_to_video=False)
                 
+                logger.info(f"Video downloaded to: {video_path}")
                 return video_path
             
             raise ValueError(f"Unexpected job status: {final_status['status']}")
