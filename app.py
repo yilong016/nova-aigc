@@ -433,21 +433,27 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                 
                 ### Image Generation
                 Choose from multiple generation types:
-                - Text to Image
-                - Text to Image with Conditioning
-                - Color Guided Generation
-                - Image Variation
-                - Inpainting
-                - Outpainting
-                - Background Removal
+                - Text to Image: Generate images from text descriptions
+                - Text to Image with Conditioning: Use edge detection or segmentation to guide generation
+                - Color Guided Generation: Create images with specific color palettes
+                - Image Variation: Generate variations of existing images
+                - Inpainting: Replace or modify specific areas in images
+                - Outpainting: Extend images beyond their original boundaries
+                - Background Removal: Remove backgrounds from images
 
                 ### Image Analysis
                 - Image to Prompt: Analyze images to generate detailed prompts
                 
                 ### Video Generation
                 Create videos from:
-                - Text descriptions
-                - Image transformations
+                - Text descriptions: Generate videos from text prompts
+                - Image transformations: Turn static images into dynamic videos
+                - Program Maker: Combine multiple images into a sequence of videos
+                
+                ### Object Detection
+                - Detect specific objects in images
+                - Generate binary masks for detected objects
+                - Support for both Nova Lite and Pro models
                 
                 ### Tips
                 - Be specific in your descriptions
@@ -1028,7 +1034,7 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
             return [], f"Error: {str(e)}"
     
     def generate_videos_from_prompts(image_paths, prompts_data, progress=gr.Progress()):
-        """Generate videos for each image using the provided prompts"""
+        """Generate videos for each image using the provided prompts concurrently"""
         # Check if image_paths is empty
         if not image_paths:
             return None, "No images available"
@@ -1047,6 +1053,10 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                 return None, "No prompts available"
         
         try:
+            # Import ThreadPoolExecutor for concurrent processing
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            import threading
+            
             # Process image paths - handle both string paths and tuples (path, None)
             processed_paths = []
             for item in image_paths:
@@ -1083,17 +1093,16 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
             # Initialize image resizer
             resizer = IntelligentImageResizer()
             
-            # Generate videos one by one (not using ThreadPoolExecutor here to show progress)
-            video_paths = []
+            # Dictionary to store processed images
+            processed_images = {}
             
+            # Process all images first (resize them)
+            logger.info("Processing images for video generation...")
             for i, image_path in enumerate(processed_paths):
                 if image_path in prompts:
-                    progress((i * 0.9) / len(processed_paths), f"Processing image {i+1}/{len(processed_paths)}")
+                    progress((i * 0.2) / len(processed_paths), f"Processing image {i+1}/{len(processed_paths)}")
                     
                     try:
-                        # Preprocess image to meet video requirements (1280x720)
-                        logger.info(f"Processing image for video: {image_path}")
-                        
                         # Create output path for processed image
                         directory = os.path.dirname(image_path)
                         filename = os.path.basename(image_path)
@@ -1109,23 +1118,88 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                         )
                         
                         logger.info(f"Image processed successfully: {processed_image}")
-                        
-                        # Generate video with processed image
-                        progress(((i * 0.9) + 0.45) / len(processed_paths), f"Generating video {i+1}/{len(processed_paths)}")
-                        response = video_generator.generate_video(text=prompts[image_path], input_image_path=processed_image)
+                        processed_images[image_path] = processed_image
                     except Exception as e:
                         logger.error(f"Error processing image {image_path}: {str(e)}")
-                        continue
-                    
-                    if "invocationArn" in response:
-                        # Wait for completion
-                        final_status = video_generator.wait_for_completion(response["invocationArn"])
-                        
-                        if final_status["status"] == "Completed":
-                            # Download video
-                            video_path = video_generator.download_video(final_status["video_uri"], is_text_to_video=False)
-                            video_paths.append(video_path)
             
+            # Function to generate a video for a single image
+            def generate_single_video(idx, image_path):
+                if image_path not in prompts or image_path not in processed_images:
+                    return idx, None
+                
+                try:
+                    logger.info(f"Generating video for image {idx+1}: {image_path}")
+                    processed_image = processed_images[image_path]
+                    
+                    # Generate video with processed image
+                    response = video_generator.generate_video(
+                        text=prompts[image_path], 
+                        input_image_path=processed_image
+                    )
+                    
+                    if "invocationArn" not in response:
+                        logger.error(f"Failed to get invocation ARN for image {idx+1}")
+                        return idx, None
+                    
+                    # Wait for completion
+                    final_status = video_generator.wait_for_completion(response["invocationArn"])
+                    
+                    if final_status["status"] == "Completed":
+                        # Download video
+                        video_path = video_generator.download_video(
+                            final_status["video_uri"], 
+                            is_text_to_video=False
+                        )
+                        logger.info(f"Video generated successfully for image {idx+1}: {video_path}")
+                        return idx, video_path
+                    else:
+                        logger.error(f"Video generation failed for image {idx+1}: {final_status.get('failure_message', 'Unknown error')}")
+                        return idx, None
+                except Exception as e:
+                    logger.error(f"Error generating video for image {idx+1}: {str(e)}")
+                    return idx, None
+            
+            # Track progress with a shared counter and lock
+            completed_count = 0
+            progress_lock = threading.Lock()
+            
+            def update_progress():
+                nonlocal completed_count
+                with progress_lock:
+                    completed_count += 1
+                    progress_val = 0.2 + (completed_count * 0.8 / len(processed_paths))
+                    progress(progress_val, f"Generated {completed_count}/{len(processed_paths)} videos")
+            
+            # Generate videos concurrently
+            logger.info(f"Starting concurrent video generation for {len(processed_paths)} images")
+            progress(0.2, f"Starting video generation (0/{len(processed_paths)})")
+            
+            # Dictionary to store results in order
+            ordered_results = {}
+            
+            # Use ThreadPoolExecutor for concurrent processing
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                # Submit all tasks
+                future_to_idx = {
+                    executor.submit(generate_single_video, i, path): i 
+                    for i, path in enumerate(processed_paths) 
+                    if path in prompts and path in processed_images
+                }
+                
+                # Process results as they complete
+                for future in as_completed(future_to_idx):
+                    idx, video_path = future.result()
+                    if video_path:
+                        ordered_results[idx] = video_path
+                    update_progress()
+            
+            # Collect results in original order
+            video_paths = []
+            for i in range(len(processed_paths)):
+                if i in ordered_results:
+                    video_paths.append(ordered_results[i])
+            
+            logger.info(f"Completed video generation. Generated {len(video_paths)} videos.")
             return video_paths, f"Generated {len(video_paths)} videos"
         except Exception as e:
             logger.error(f"Error generating videos: {str(e)}")
