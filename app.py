@@ -7,6 +7,8 @@ from backend.image_variation import NovaImageVariation
 from backend.prompt_optimizer import PromptOptimizer, CanvasPromptOptimizer, ImageToPrompt
 from backend.intellegent_resize_image import IntelligentImageResizer
 from backend.detect_object_to_mask import detect_and_mask, ensure_directories
+from backend.image_to_video_prompt import ImageToVideoPrompt
+from backend.program_maker import VideoMaker
 import time
 from datetime import datetime
 from dotenv import load_dotenv
@@ -32,6 +34,8 @@ image_generator = NovaImageGenerator()
 image_variation = NovaImageVariation()
 video_prompt_optimizer = PromptOptimizer()
 image_prompt_optimizer = CanvasPromptOptimizer()
+image_to_video_prompt = ImageToVideoPrompt()
+video_maker = VideoMaker()
 
 def analyze_image_to_prompt(image: str) -> str:
     """Analyze an image to generate a detailed prompt for image generation"""
@@ -850,6 +854,89 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                         )
                         img2vid_generate_btn = gr.Button("🎬 Generate Video", elem_classes="primary-button")
                         img2vid_output = gr.Video(label="Generated Video")
+                
+                # Program Maker tab
+                with gr.Tab("Program Maker"):
+                    with gr.Group(elem_classes="group-container"):
+                        gr.Markdown("""
+                        ## Program Maker
+                        
+                        Upload multiple images (up to 10) to create a sequence of videos that will be combined into a final video.
+                        
+                        1. Upload your images in the desired order
+                        2. Generate video prompts for each image
+                        3. Generate videos for each image
+                        4. Preview the videos
+                        5. Combine the videos into a final video
+                        """)
+                        
+                        # Image upload section
+                        with gr.Row():
+                            program_images = gr.Gallery(
+                                label="Uploaded Images",
+                                show_label=True,
+                                elem_id="program_images",
+                                columns=5,
+                                height="auto"
+                            )
+                        
+                        with gr.Row():
+                            program_image_upload = gr.File(
+                                label="Upload Images (Max 10)",
+                                file_count="multiple",
+                                file_types=["image"],
+                                elem_id="program_image_upload"
+                            )
+                            program_clear_btn = gr.Button("Clear Images", elem_classes="primary-button")
+                        
+                        # Prompt generation section
+                        program_generate_prompts_btn = gr.Button("1️⃣ Generate Video Prompts", elem_classes="primary-button")
+                        
+                        program_prompts = gr.Dataframe(
+                            headers=["Image", "Prompt"],
+                            datatype=["str", "str"],
+                            row_count=10,
+                            col_count=(2, "fixed"),
+                            interactive=True,
+                            label="Generated Prompts (Editable)"
+                        )
+                        
+                        # Video generation section
+                        with gr.Row():
+                            program_generate_videos_btn = gr.Button("2️⃣ Generate Videos", elem_classes="primary-button")
+                            program_video_progress = gr.Textbox(
+                                label="Progress",
+                                value="Not started",
+                                interactive=False
+                            )
+                        
+                        # Video preview section
+                        program_videos = gr.Gallery(
+                            label="Generated Videos",
+                            show_label=True,
+                            elem_id="program_videos",
+                            columns=5,
+                            height="auto"
+                        )
+                        
+                        # Video combination section
+                        with gr.Row():
+                            with gr.Column(scale=1):
+                                program_transition = gr.Radio(
+                                    choices=["fade", "none"],
+                                    label="Transition Type",
+                                    value="fade"
+                                )
+                            
+                            with gr.Column(scale=2):
+                                program_durations = gr.Textbox(
+                                    label="Durations (seconds per clip, 1-6)",
+                                    placeholder="e.g., 4,3,4,5,3",
+                                    value="4"
+                                )
+                        
+                        program_combine_btn = gr.Button("3️⃣ Combine Videos", elem_classes="primary-button")
+                        program_final_video = gr.Video(label="Final Combined Video")
 
     # Connect the components for image to prompt
     img2prompt_analyze_btn.click(
@@ -888,6 +975,250 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
         fn=detect_and_mask,
         inputs=[detect_image, detect_object, detect_model, detect_size],
         outputs=[detect_output, mask_output, detect_coords, mask_path]
+    )
+    
+    # Program Maker functions
+    def upload_images(files):
+        """Process uploaded image files and return their paths"""
+        if not files:
+            return []
+        
+        # Limit to 10 images
+        files = files[:10]
+        
+        # Get file paths
+        image_paths = [file.name for file in files]
+        
+        # Return both paths for display and actual file paths
+        return image_paths
+    
+    def clear_images():
+        """Clear all uploaded images"""
+        return None, None, None, "Not started", None
+    
+    def generate_video_prompts(image_paths):
+        """Generate video prompts for the uploaded images"""
+        if not image_paths:
+            return [], "No images uploaded"
+        
+        try:
+            # Process image paths - handle both string paths and tuples (path, None)
+            processed_paths = []
+            for item in image_paths:
+                if isinstance(item, tuple) and len(item) == 2:
+                    # Extract just the path from (path, None) tuple
+                    processed_paths.append(item[0])
+                elif isinstance(item, str):
+                    processed_paths.append(item)
+                else:
+                    logger.warning(f"Skipping invalid image path format: {item}")
+            
+            if not processed_paths:
+                return [], "No valid image paths found"
+            
+            # Generate prompts
+            prompts_dict = image_to_video_prompt.generate_prompts(processed_paths)
+            
+            # Convert to dataframe format
+            prompts_data = [[path, prompts_dict[path]] for path in processed_paths]
+            
+            return prompts_data, "Prompts generated successfully"
+        except Exception as e:
+            logger.error(f"Error generating prompts: {str(e)}")
+            return [], f"Error: {str(e)}"
+    
+    def generate_videos_from_prompts(image_paths, prompts_data, progress=gr.Progress()):
+        """Generate videos for each image using the provided prompts"""
+        # Check if image_paths is empty
+        if not image_paths:
+            return None, "No images available"
+        
+        # Check if prompts_data is empty (handle DataFrame properly)
+        try:
+            import pandas as pd
+            if isinstance(prompts_data, pd.DataFrame):
+                if prompts_data.empty:
+                    return None, "No prompts available"
+            elif not prompts_data:  # Handle other types (list, etc.)
+                return None, "No prompts available"
+        except Exception as e:
+            logger.warning(f"Error checking prompts_data: {str(e)}")
+            if not prompts_data:  # Fallback check
+                return None, "No prompts available"
+        
+        try:
+            # Process image paths - handle both string paths and tuples (path, None)
+            processed_paths = []
+            for item in image_paths:
+                if isinstance(item, tuple) and len(item) == 2:
+                    # Extract just the path from (path, None) tuple
+                    processed_paths.append(item[0])
+                elif isinstance(item, str):
+                    processed_paths.append(item)
+                else:
+                    logger.warning(f"Skipping invalid image path format: {item}")
+            
+            if not processed_paths:
+                return None, "No valid image paths found"
+            
+            # Convert prompts data to dictionary
+            prompts = {}
+            try:
+                import pandas as pd
+                if isinstance(prompts_data, pd.DataFrame):
+                    # Handle pandas DataFrame
+                    for index, row in prompts_data.iterrows():
+                        if len(row) >= 2:
+                            prompts[row[0]] = row[1]
+                else:
+                    # Handle list or other iterable
+                    for row in prompts_data:
+                        if len(row) >= 2:
+                            # The key in prompts_data might be the processed path
+                            prompts[row[0]] = row[1]
+            except Exception as e:
+                logger.error(f"Error processing prompts data: {str(e)}")
+                return None, f"Error processing prompts: {str(e)}"
+            
+            # Initialize image resizer
+            resizer = IntelligentImageResizer()
+            
+            # Generate videos one by one (not using ThreadPoolExecutor here to show progress)
+            video_paths = []
+            
+            for i, image_path in enumerate(processed_paths):
+                if image_path in prompts:
+                    progress((i * 0.9) / len(processed_paths), f"Processing image {i+1}/{len(processed_paths)}")
+                    
+                    try:
+                        # Preprocess image to meet video requirements (1280x720)
+                        logger.info(f"Processing image for video: {image_path}")
+                        
+                        # Create output path for processed image
+                        directory = os.path.dirname(image_path)
+                        filename = os.path.basename(image_path)
+                        base_name, ext = os.path.splitext(filename)
+                        processed_image_path = os.path.join(directory, f"{base_name}_processed{ext}")
+                        
+                        # Resize image
+                        processed_image = resizer.resize_image(
+                            image_path=image_path,
+                            output_path=processed_image_path,
+                            target_width=1280,
+                            target_height=720
+                        )
+                        
+                        logger.info(f"Image processed successfully: {processed_image}")
+                        
+                        # Generate video with processed image
+                        progress(((i * 0.9) + 0.45) / len(processed_paths), f"Generating video {i+1}/{len(processed_paths)}")
+                        response = video_generator.generate_video(text=prompts[image_path], input_image_path=processed_image)
+                    except Exception as e:
+                        logger.error(f"Error processing image {image_path}: {str(e)}")
+                        continue
+                    
+                    if "invocationArn" in response:
+                        # Wait for completion
+                        final_status = video_generator.wait_for_completion(response["invocationArn"])
+                        
+                        if final_status["status"] == "Completed":
+                            # Download video
+                            video_path = video_generator.download_video(final_status["video_uri"], is_text_to_video=False)
+                            video_paths.append(video_path)
+            
+            return video_paths, f"Generated {len(video_paths)} videos"
+        except Exception as e:
+            logger.error(f"Error generating videos: {str(e)}")
+            return None, f"Error: {str(e)}"
+    
+    def combine_videos(video_paths, transition_type, durations_str):
+        """Combine the generated videos into a final video"""
+        if not video_paths:
+            return None, "No videos to combine"
+        
+        try:
+            # Process video paths - handle both string paths and tuples (path, None)
+            processed_paths = []
+            for item in video_paths:
+                if isinstance(item, tuple) and len(item) == 2:
+                    # Extract just the path from (path, None) tuple
+                    processed_paths.append(item[0])
+                elif isinstance(item, str):
+                    processed_paths.append(item)
+                else:
+                    logger.warning(f"Skipping invalid video path format: {item}")
+            
+            if not processed_paths:
+                return None, "No valid video paths found"
+            
+            # Parse durations
+            try:
+                if "," in durations_str:
+                    durations = [int(d.strip()) for d in durations_str.split(",")]
+                else:
+                    # Use the same duration for all videos
+                    durations = [int(durations_str.strip())] * len(processed_paths)
+            except ValueError:
+                # Default to 4 seconds if parsing fails
+                durations = [4] * len(processed_paths)
+            
+            # Ensure we have the right number of durations
+            if len(durations) < len(processed_paths):
+                durations.extend([4] * (len(processed_paths) - len(durations)))
+            elif len(durations) > len(processed_paths):
+                durations = durations[:len(processed_paths)]
+            
+            # Ensure all durations are between 1 and 6
+            durations = [max(1, min(d, 6)) for d in durations]
+            
+            # Create output path
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            output_dir = os.getenv('VIDEO_OUTPUT_DIR', './output/generated_videos')
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = os.path.join(output_dir, f"combined_video_{timestamp}.mp4")
+            
+            # Combine videos
+            final_path = video_maker.create_video(
+                video_paths=processed_paths,
+                durations=durations,
+                transition_type=transition_type,
+                output_path=output_path
+            )
+            
+            return final_path, f"Videos combined successfully: {final_path}"
+        except Exception as e:
+            logger.error(f"Error combining videos: {str(e)}")
+            return None, f"Error: {str(e)}"
+    
+    # Connect Program Maker components
+    program_image_upload.change(
+        fn=upload_images,
+        inputs=[program_image_upload],
+        outputs=[program_images]
+    )
+    
+    program_clear_btn.click(
+        fn=clear_images,
+        inputs=[],
+        outputs=[program_images, program_prompts, program_videos, program_video_progress, program_final_video]
+    )
+    
+    program_generate_prompts_btn.click(
+        fn=generate_video_prompts,
+        inputs=[program_images],
+        outputs=[program_prompts, program_video_progress]
+    )
+    
+    program_generate_videos_btn.click(
+        fn=generate_videos_from_prompts,
+        inputs=[program_images, program_prompts],
+        outputs=[program_videos, program_video_progress]
+    )
+    
+    program_combine_btn.click(
+        fn=combine_videos,
+        inputs=[program_videos, program_transition, program_durations],
+        outputs=[program_final_video, program_video_progress]
     )
 
     # Launch the app
