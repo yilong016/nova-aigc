@@ -32,7 +32,7 @@ class ImageToVideoPrompt:
         logger.info("Initializing ImageToVideoPrompt generator...")
         
         self.region_name = region_name or os.getenv('AWS_REGION', 'us-east-1')
-        self.model_name = model_name or os.getenv('IMAGE_TO_PROMPTS_MODEL', 'us.amazon.nova-pro-v1:0')
+        self.model_name = model_name or os.getenv('IMAGE_TO_PROMPTS_MODEL')
         
         self.bedrock_client = boto3.client(
             service_name='bedrock-runtime',

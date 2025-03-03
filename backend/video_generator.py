@@ -45,7 +45,7 @@ class NovaVideoGenerator:
         # Use provided bucket or construct from env vars
         if s3_output_bucket is None:
             bucket = os.getenv('AWS_S3_BUCKET')
-            prefix = os.getenv('AWS_S3_PREFIX', 'nova-demo')
+            prefix = os.getenv('AWS_S3_PREFIX')
             s3_output_bucket = f"s3://{bucket}/{prefix}/"
         
         logger.info(f"Output bucket: {s3_output_bucket}")
