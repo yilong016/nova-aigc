@@ -26,13 +26,13 @@ class ImageToVideoPrompt:
         """Initialize the ImageToVideoPrompt generator.
         
         Args:
-            region_name (str, optional): AWS region name. Defaults to 'us-west-2'.
-            model_name (str, optional): Bedrock model name. Defaults to Claude 3.7 Sonnet.
+            region_name (str, optional): AWS region name. Defaults to 'us-east-1'.
+            model_name (str, optional): Bedrock model name. Defaults to nova pro.
         """
         logger.info("Initializing ImageToVideoPrompt generator...")
         
-        self.region_name = region_name or os.getenv('AWS_REGION', 'us-west-2')
-        self.model_name = model_name or os.getenv('CLAUDE_MODEL', 'us.anthropic.claude-3-7-sonnet-20250219-v1:0')
+        self.region_name = region_name or os.getenv('AWS_REGION', 'us-east-1')
+        self.model_name = model_name or os.getenv('IMAGE_TO_PROMPTS_MODEL', 'us.amazon.nova-pro-v1:0')
         
         self.bedrock_client = boto3.client(
             service_name='bedrock-runtime',
@@ -138,7 +138,39 @@ class ImageToVideoPrompt:
             system_prompts = [{"text": system_text}]
             
             # User prompt
-            text = '''
+            text='''
+#任务描述
+你是一位专业旅游视觉导演，负责为Amazon Canvas Reel创建简洁有力的视频生成提示词。我会上传旅游行业相关的照片(如海岛、沙滩、美食、酒店、游乐场、自然风光等)，请为每张照片创建能使静态图像转化为动态视频的专业提示词。
+
+#输出要求
+- 每个提示词应简洁精炼，采用摄影术语描述平稳缓慢的运镜动作
+- 清晰描述主体、环境和氛围元素
+- 包含必要的技术参数(如4k, cinematic, photorealistic)
+- 突出旅游体验的独特卖点
+- 确保动作微妙、自然，避免剧烈变化
+
+#输出格式
+对于每张照片，请提供以下格式，不要添加任何其他格式修饰：
+V[编号]:"[图片名称]; [平稳运镜动作] of [主体/场景描述]; [环境/氛围元素]; [技术参数]; [附加细节]"
+
+#参考示例
+V1: "white beach; Gentle aerial drift over pristine white sand beach with turquoise waters; palm trees swaying subtly; luxury resort visible in background; golden sunset light; 4k; cinematic; shallow depth of field"
+V2: "night bar; Subtle push in on exotic cocktail with tropical garnish; beachfront bar setting; soft ocean waves in background; condensation droplets visible; warm evening light; 4k; photorealistic"
+V3: "theme park; Slow steady tracking shot observing a family walking through colorful theme park; excited children pointing at attractions; confetti falling gently; sunny day; vibrant colors; 4k; cinematic; natural lighting"
+V4: "luxury hotel; Smooth gradual pan across luxury hotel lobby; crystal chandeliers; marble floors with reflections; well-dressed guests checking in; soft ambient lighting; 4k; photorealistic; shallow focus"
+V5: "view; Gentle first-person perspective slowly approaching a private balcony; panoramic mountain vista gradually revealed; steam rising from coffee cup in foreground; morning mist in valley below; birds flying; 4k; cinematic"
+V6: "312; Minimal motion closeup of chef's hands preparing sushi; fresh ingredients; light steam rising; precision knife work; restaurant ambient lighting; 4k; photorealistic; macro details"
+V7: "231; Slow deliberate orbit around ancient temple ruins; golden hour lighting; tourists exploring in distance; birds flying overhead; historical architecture details; 4k; cinematic; atmospheric"
+V8: "12; Subtle push in on infinity pool merging with ocean horizon; gentle rippling water reflections; empty lounger with folded towel; cocktail on side table; sunset colors; 4k; cinematic"
+
+#额外指南
+- 使用平稳缓慢的运镜指令(gentle drift, subtle push, slow tracking, smooth pan, minimal motion, gradual等)
+- 避免快速或大幅度的相机运动，保持镜头移动自然和微妙
+- 添加视觉细节以增强真实感(如光线条件、天气状态、材质细节)
+- 根据照片内容选择最能展现空间感和氛围的平稳运镜动作
+- 控制每个提示词在40-60个单词左右，确保AI能有效处理
+'''
+            text_1 = '''
             #任务描述
             你是一位专业旅游视觉导演，负责为Amazon Canvas Reel创建简洁有力的视频生成提示词。我会上传旅游行业相关的照片(如海岛、沙滩、美食、酒店、游乐场、自然风光等)，请为每张照片创建能使静态图像转化为动态视频的专业提示词。
 
@@ -148,19 +180,19 @@ class ImageToVideoPrompt:
             - 包含必要的技术参数(如4k, cinematic, photorealistic)
             - 突出旅游体验的独特卖点
 
-            #提示词格式
-            对于每张照片，请提供以下格式的提示词：
-            V[编号]: "[运镜动作] of [主体/场景描述]; [环境/氛围元素]; [技术参数]; [附加细节]"
+            #输出格式
+            对于每张照片，请提供以下格式，不要添加任何其他格式修饰：
+            V[编号]:"[图片名称]; [运镜动作] of [主体/场景描述]; [环境/氛围元素]; [技术参数]; [附加细节]"
 
             #参考示例
-            V1: "Aerial dolly shot of pristine white sand beach with turquoise waters; palm trees swaying gently; luxury resort visible in background; golden sunset light; 4k; cinematic; shallow depth of field"
-            V2: "Slow push in on exotic cocktail with tropical garnish; beachfront bar setting; soft ocean waves in background; condensation droplets visible; warm evening light; 4k; photorealistic"
-            V3: "Tracking shot following a family walking through colorful theme park; excited children pointing at attractions; confetti falling; sunny day; vibrant colors; 4k; cinematic; natural lighting"
-            V4: "Cinematic pan across luxury hotel lobby; crystal chandeliers; marble floors with reflections; well-dressed guests checking in; soft ambient lighting; 4k; photorealistic; shallow focus"
-            V5: "First person perspective walking onto a private balcony; panoramic mountain vista revealed; steam rising from coffee cup in foreground; morning mist in valley below; birds flying; 4k; cinematic"
-            V6: "Slow motion closeup of chef's hands preparing sushi; fresh ingredients; steam rising; precision knife work; restaurant ambient lighting; 4k; photorealistic; macro details"
-            V7: "Orbit shot around ancient temple ruins; golden hour lighting; tourists exploring in distance; birds flying overhead; historical architecture details; 4k; cinematic; atmospheric"
-            V8: "Gentle push in on infinity pool merging with ocean horizon; rippling water reflections; empty lounger with folded towel; cocktail on side table; sunset colors; 4k; cinematic"
+            V1: "white beach; Aerial dolly shot of pristine white sand beach with turquoise waters; palm trees swaying gently; luxury resort visible in background; golden sunset light; 4k; cinematic; shallow depth of field"
+            V2: "night bar; Slow push in on exotic cocktail with tropical garnish; beachfront bar setting; soft ocean waves in background; condensation droplets visible; warm evening light; 4k; photorealistic"
+            V3: "theme park; Tracking shot following a family walking through colorful theme park; excited children pointing at attractions; confetti falling; sunny day; vibrant colors; 4k; cinematic; natural lighting"
+            V4: "luxury hotel; Cinematic pan across luxury hotel lobby; crystal chandeliers; marble floors with reflections; well-dressed guests checking in; soft ambient lighting; 4k; photorealistic; shallow focus"
+            V5: "view; First person perspective walking onto a private balcony; panoramic mountain vista revealed; steam rising from coffee cup in foreground; morning mist in valley below; birds flying; 4k; cinematic"
+            V6: "312; Slow motion closeup of chef's hands preparing sushi; fresh ingredients; steam rising; precision knife work; restaurant ambient lighting; 4k; photorealistic; macro details"
+            V7: "231; Orbit shot around ancient temple ruins; golden hour lighting; tourists exploring in distance; birds flying overhead; historical architecture details; 4k; cinematic; atmospheric"
+            V8: "12; Gentle push in on infinity pool merging with ocean horizon; rippling water reflections; empty lounger with folded towel; cocktail on side table; sunset colors; 4k; cinematic"
 
             #额外指南
             - 确保运镜指令清晰明确(dolly, pan, tracking, zoom, orbit, aerial等)
@@ -181,23 +213,23 @@ class ImageToVideoPrompt:
             ]
             
             # Base inference parameters
-            inference_config = {"temperature": 0.1}
+            inference_config = {"temperature": 1}
             
             # Additional inference parameters
-            additional_model_fields = {"top_k": 200}
+            #additional_model_fields = {"top_k": 200}
             
             logger.info("Calling Bedrock API for prompt generation...")
             response = self.bedrock_client.converse(
                 modelId=self.model_name,
                 messages=messages,
                 inferenceConfig=inference_config,
-                additionalModelRequestFields=additional_model_fields,
+                #additionalModelRequestFields=additional_model_fields,
             )
             
             # Extract the generated prompts
             result_text = response['output']['message']['content'][0]['text']
             logger.info("Successfully generated video prompts")
-            
+            logger.info(f"Generated prompts: {result_text}")
             # Parse the result text to extract prompts for each image
             return self._parse_prompts(result_text, image_paths)
             

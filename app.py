@@ -9,7 +9,7 @@ from backend.prompt_optimizer import PromptOptimizer, CanvasPromptOptimizer, Ima
 from backend.intellegent_resize_image import IntelligentImageResizer
 from backend.detect_object_to_mask import detect_and_mask, ensure_directories
 from backend.image_to_video_prompt import ImageToVideoPrompt
-from backend.program_maker import VideoMaker
+from backend.video_cutter import VideoCutter
 import time
 from datetime import datetime
 from dotenv import load_dotenv
@@ -36,7 +36,7 @@ image_variation = NovaImageVariation()
 video_prompt_optimizer = PromptOptimizer()
 image_prompt_optimizer = CanvasPromptOptimizer()
 image_to_video_prompt = ImageToVideoPrompt()
-video_maker = VideoMaker()
+video_cutter = VideoCutter()
 
 def analyze_image_to_prompt(image: str) -> str:
     """Analyze an image to generate a detailed prompt for image generation"""
@@ -105,7 +105,7 @@ def process_image_for_video(image_path: str) -> str:
         logger.error(f"Error processing image: {str(e)}", exc_info=True)
         raise
 
-def generate_video(text: str, image: Optional[str] = None, progress: Optional[gr.Progress] = gr.Progress()) -> str:
+def generate_video(text: str, image: Optional[str] = None, progress: Optional[gr.Progress] = gr.Progress()) -> Union[str, None]:
     """Generate video from text or image+text"""
     try:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -157,10 +157,19 @@ def generate_video(text: str, image: Optional[str] = None, progress: Optional[gr
                 logger.info(f"Generation completed. Downloading video from {video_uri}")
                 
                 try:
-                    video_path = video_generator.download_video(video_uri, local_dir)
+                    video_path = video_generator.download_video(video_uri, is_text_to_video=True, custom_path=None)
                     logger.info(f"Video successfully downloaded to: {video_path}")
-                    progress(1.0, desc="Video generation completed!")
-                    return video_path
+                    
+                    # Verify the file exists and is accessible
+                    if os.path.exists(video_path) and os.path.isfile(video_path):
+                        # Return the absolute path to ensure Gradio can find it
+                        abs_path = os.path.abspath(video_path)
+                        logger.info(f"Returning video path for display: {abs_path}")
+                        progress(1.0, desc="Video generation completed!")
+                        return abs_path
+                    else:
+                        logger.error(f"Downloaded video file not found at: {video_path}")
+                        return None
                 except Exception as e:
                     logger.error(f"Error downloading video: {str(e)}", exc_info=True)
                     return f"Error downloading video: {str(e)}"
@@ -902,7 +911,7 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                         program_prompts = gr.Dataframe(
                             headers=["Image", "Prompt"],
                             datatype=["str", "str"],
-                            row_count=10,
+                            row_count=(10,"fixed"),
                             col_count=(2, "fixed"),
                             interactive=True,
                             label="Generated Prompts (Editable)"
@@ -917,14 +926,20 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                                 interactive=False
                             )
                         
-                        # Video preview section
-                        program_videos = gr.Gallery(
-                            label="Generated Videos",
-                            show_label=True,
-                            elem_id="program_videos",
-                            columns=5,
-                            height="auto"
-                        )
+                        # Video file addresses section
+                        gr.Markdown("### Generated Video Files")
+                        with gr.Row():
+                            program_videos = gr.State([])  # Hidden state to store video paths
+                            video_file_list = gr.Textbox(
+                                label="Video File Addresses (Click to open)",
+                                placeholder="Video files will be listed here after generation",
+                                lines=5,
+                                interactive=False,
+                                elem_id="video_file_list"
+                            )
+                        
+                        # Store video paths (hidden)
+                        video_paths_store = gr.State([])
                         
                         # Video combination section
                         with gr.Row():
@@ -939,7 +954,7 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                                 program_durations = gr.Textbox(
                                     label="Durations (seconds per clip, 1-6)",
                                     placeholder="e.g., 4,3,4,5,3",
-                                    value="4"
+                                    value="6"
                                 )
                         
                         program_combine_btn = gr.Button("3️⃣ Combine Videos", elem_classes="primary-button")
@@ -1001,7 +1016,7 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
     
     def clear_images():
         """Clear all uploaded images"""
-        return None, None, None, "Not started", None
+        return None, None, None, "", "Not started", None
     
     def generate_video_prompts(image_paths):
         """Generate video prompts for the uploaded images"""
@@ -1159,8 +1174,16 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                             is_text_to_video=False,
                             custom_path=download_path
                         )
-                        logger.info(f"Video generated successfully for image {idx+1}: {video_path}")
-                        return idx, video_path
+                        
+                        # Verify the file exists and is accessible
+                        if os.path.exists(video_path) and os.path.isfile(video_path):
+                            # Return the absolute path to ensure Gradio can find it
+                            abs_path = os.path.abspath(video_path)
+                            logger.info(f"Video generated successfully for image {idx+1}: {abs_path}")
+                            return idx, abs_path
+                        else:
+                            logger.error(f"Downloaded video file not found at: {video_path}")
+                            return idx, None
                     else:
                         logger.error(f"Video generation failed for image {idx+1}: {final_status.get('failure_message', 'Unknown error')}")
                         return idx, None
@@ -1180,7 +1203,7 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                     progress(progress_val, f"Generated {completed_count}/{len(processed_paths)} videos")
             
             # Generate a batchid for this set of videos
-            batchid = video_maker._generate_batchid()
+            batchid = video_cutter._generate_batchid()
             
             # Create batch directory
             output_dir = os.getenv('VIDEO_OUTPUT_DIR', './output/generated_videos')
@@ -1226,7 +1249,16 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
                     video_paths.append(ordered_results[i])
             
             logger.info(f"Completed video generation. Generated {len(video_paths)} videos.")
-            return video_paths, f"Generated {len(video_paths)} videos"
+            
+            # Return the first video to display in the main video player
+            first_video = video_paths[0] if video_paths else None
+            
+            # Create a formatted list of video file paths
+            video_file_text = ""
+            for i, video_path in enumerate(video_paths):
+                video_file_text += f"Video {i+1}: {video_path}\n"
+            
+            return video_paths, video_file_text, video_paths, f"Generated {len(video_paths)} videos"
         except Exception as e:
             logger.error(f"Error generating videos: {str(e)}")
             return None, f"Error: {str(e)}"
@@ -1291,7 +1323,7 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
             
             # If we couldn't extract batchid, generate a new one
             if not batchid:
-                batchid = video_maker._generate_batchid()
+                batchid = video_cutter._generate_batchid()
             
             # Create batch directory
             output_dir = os.getenv('VIDEO_OUTPUT_DIR', './output/generated_videos')
@@ -1302,14 +1334,22 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
             output_path = os.path.join(batch_dir, f"{batchid}_combined.mp4")
             
             # Combine videos
-            final_path = video_maker.create_video(
+            final_path = video_cutter.combine_video(
                 video_paths=processed_paths,
                 durations=durations,
                 transition_type=transition_type,
                 output_path=output_path
             )
             
-            return final_path, f"Videos combined successfully: {final_path}"
+            # Verify the file exists and is accessible
+            if os.path.exists(final_path) and os.path.isfile(final_path):
+                # Return the absolute path to ensure Gradio can find it
+                abs_path = os.path.abspath(final_path)
+                logger.info(f"Final combined video created at: {abs_path}")
+                return abs_path, f"Videos combined successfully"
+            else:
+                logger.error(f"Combined video file not found at: {final_path}")
+                return None, "Error: Combined video file not found"
         except Exception as e:
             logger.error(f"Error combining videos: {str(e)}")
             return None, f"Error: {str(e)}"
@@ -1324,7 +1364,7 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
     program_clear_btn.click(
         fn=clear_images,
         inputs=[],
-        outputs=[program_images, program_prompts, program_videos, program_video_progress, program_final_video]
+        outputs=[program_images, program_prompts, program_videos, video_file_list, program_video_progress, program_final_video]
     )
     
     program_generate_prompts_btn.click(
@@ -1336,7 +1376,7 @@ with gr.Blocks(title="Amazon-Nova-AIGC", css=custom_css) as demo:
     program_generate_videos_btn.click(
         fn=generate_videos_from_prompts,
         inputs=[program_images, program_prompts],
-        outputs=[program_videos, program_video_progress]
+        outputs=[program_videos, video_file_list, video_paths_store, program_video_progress]
     )
     
     program_combine_btn.click(

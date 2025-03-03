@@ -21,12 +21,12 @@ class BasePromptOptimizer:
         """Initialize the Prompt Optimizer."""
         self.bedrock_client = boto3.client(
             service_name='bedrock-runtime',
-            region_name=os.getenv('AWS_REGION', 'us-west-2')
+            region_name=os.getenv('AWS_REGION', 'us-east-1')
         )
         
         # Base parameters
         self.inference_config = {"temperature": 1}
-        self.model_id = os.getenv('NOVA_MODEL_ID', 'us.amazon.nova-pro-v1:0')
+        self.model_id = os.getenv('PROMPT_OPTIMIZER_MODEL', 'us.amazon.nova-pro-v1:0')
 
     def _encode_image(self, image_path: str, max_size=1568):
         """Process image for Nova API.

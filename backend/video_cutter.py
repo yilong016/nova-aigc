@@ -20,7 +20,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class VideoMaker:
+class VideoCutter:
     def __init__(self):
         self.transitions = {
             'fade': self._apply_fade_transition,
@@ -226,7 +226,7 @@ class VideoMaker:
             logger.error(f"Error generating video: {str(e)}")
             raise
     
-    def create_video(self, video_paths, durations, transition_type='fade', output_path='output_video.mp4'):
+    def combine_video(self, video_paths, durations, transition_type='fade', output_path='output_video.mp4'):
         """
         Create a video by combining multiple clips with transitions
         
@@ -298,41 +298,13 @@ def main():
     
     args = parser.parse_args()
     
-    maker = VideoMaker()
+    cutter = VideoCutter()
     
     try:
-        output_path = maker.create_video(args.videos, args.durations, args.transition, args.output)
+        output_path = cutter.create_video(args.videos, args.durations, args.transition, args.output)
         print(f"\nVideo created successfully: {output_path}")
     except Exception as e:
         print(f"\nError creating video: {str(e)}")
 
 if __name__ == "__main__":
     main()
-
-
-"""
-Example usage for different transition types:
-
-1. Fade transition (fade out/fade in):
-python program_maker.py \
-  --videos \
-  ../output/sucai/1.mp4 \
-  ../output/sucai/2.mp4 \
-  ../output/sucai/3.mp4 \
-    ../output/sucai/4.mp4 \
-        ../output/sucai/5.mp4 \
-            ../output/sucai/6.mp4 \
-                ../output/sucai/7.mp4 \
-                    ../output/sucai/8.mp4 \
-                    ../output/sucai/9.mp4 \
-  --durations 4 3 4 5 3 4 4 5 3 \
-  --transition fade \
-  --output ../output/program_video_1.mp4
-
-2. No transition (direct cut):
-python program_maker.py \
-  --videos clip1.mp4 clip2.mp4 clip3.mp4 \
-  --durations 3 4 2 \
-  --transition none \
-  --output direct_cut_video.mp4
-"""
